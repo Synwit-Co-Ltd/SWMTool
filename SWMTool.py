@@ -58,6 +58,7 @@ class SWMTool(QWidget):
             self.conf.set('mcu.pack', 'SWM260', 'SWM260CxTy')
             self.conf.set('mcu.pack', 'SWM320', 'SWM320RxTy')
             self.conf.set('mcu.pack', 'SWM341', 'SWM341RxTy')
+            self.conf.set('mcu.pack', 'SWM342', 'SWM342RxTy')
 
         if not self.conf.has_section('mcu.freq'):
             self.conf.add_section('mcu.freq')
@@ -68,9 +69,10 @@ class SWMTool(QWidget):
             self.conf.set('mcu.freq', 'SWM260', '60')
             self.conf.set('mcu.freq', 'SWM320', '120')
             self.conf.set('mcu.freq', 'SWM341', '150')
+            self.conf.set('mcu.freq', 'SWM342', '150')
 
-        self.MCUPack = {mcu: self.conf.get('mcu.pack', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341')}
-        self.MCUFreq = {mcu: self.conf.get('mcu.freq', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341')}
+        self.MCUPack = {mcu: self.conf.get('mcu.pack', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM342')}
+        self.MCUFreq = {mcu: self.conf.get('mcu.freq', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM342')}
 
         self.cmbMCU.setCurrentIndex(self.cmbMCU.findText(self.conf.get('global', 'mcu')))
 
@@ -138,6 +140,13 @@ class SWMTool(QWidget):
             self.tabMain.setTabVisible(PAGE_SDR, True)
 
         elif mcu =='SWM341':
+            self.tabMain.setTabVisible(PAGE_CAN, True)
+            self.CAN_preDiv = 2
+            self.CAN_brpBit = 10
+
+            self.tabMain.setTabVisible(PAGE_SDR, True)
+
+        elif mcu =='SWM342':
             self.tabMain.setTabVisible(PAGE_CAN, True)
             self.CAN_preDiv = 2
             self.CAN_brpBit = 10
@@ -219,9 +228,13 @@ class SWMTool(QWidget):
         self.txtSDRShow.append('tCK, CLK Cycle Time (ns)')
         for cas, clk in sdr.tCLK.items():
             self.txtSDRShow.append(f'   when CAS Latency = {cas}: {clk}')
-        self.txtSDRShow.append(f'tRP, Row precharge time, Ie. Precharge to Activate delay (ns):  {sdr.tRP}')
-        self.txtSDRShow.append(f'tRCD, Row to column delay, Ie. Activate to Command delay (ns):  {sdr.tRCD}')
-        self.txtSDRShow.append(f'tRFC, Refresh/Active to Refresh/Active Command Period (ns)   :  {sdr.tRFC}')
+        self.txtSDRShow.append(f'tRP, Row precharge time, Ie. Precharge to Activate delay (ns) :  {sdr.tRP}')
+        self.txtSDRShow.append(f'tRCD, Row to column delay, Ie. Activate to Command delay (ns) :  {sdr.tRCD}')
+        self.txtSDRShow.append(f'tRFC, Refresh/Active to Refresh/Active Command Period (ns)    :  {sdr.tRFC}')
+
+        if self.cmbMCU.currentText() in ('SWM342', ):
+            self.txtSDRShow.append(f'tRRD, Activate to Activate on different bank (ns or tCK)      :  {sdr.tRRD}')
+            self.txtSDRShow.append(f'tRAS, Activate to Precharge delay (ns)                        :  {sdr.tRAS}')
 
     @pyqtSlot()
     def on_btnSDRGen_clicked(self):
@@ -234,7 +247,12 @@ class SWMTool(QWidget):
         mcu = self.cmbMCU.currentText()
         sdr = sdrs[self.cmbSDRChip.currentText()]
 
-        divs = (4, ) if mcu == 'SWM320' else (1, 2)
+        if   mcu in ('SWM320', ):
+            divs = (4,  )
+        elif mcu in ('SWM341', ):
+            divs = (1, 2)
+        elif mcu in ('SWM342', ):
+            divs = (1,  )
 
         self.txtSDRShow.clear()
 
@@ -250,6 +268,8 @@ class SWMTool(QWidget):
                 nRP = ceil(sdr.tRP / tSDR)
                 nRCD = ceil(sdr.tRCD / tSDR)
                 nRFC = ceil(sdr.tRFC / tSDR)
+                nRRD = int(sdr.tRRD[0]) if type(sdr.tRRD) is str else ceil(sdr.tRRD / tSDR)
+                nRAS = ceil(sdr.tRAS / tSDR)
 
                 if mcu == 'SWM320':
                     if nRP  < 3: nRP  = 3
@@ -259,7 +279,7 @@ class SWMTool(QWidget):
                 else:
                     if nRFC < 4: nRFC = 4
 
-                if mcu == 'SWM320':
+                if   mcu in ('SWM320', ):
                     self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}）：')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.CellSize = SDRAM_CELLSIZE_{sdr.size*8}Mb;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.CellBank = SDRAM_CELLBANK_{sdr.bank};')
@@ -272,7 +292,7 @@ class SWMTool(QWidget):
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRFC};')
 
-                else:
+                elif mcu in ('SWM341', ):
                     self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}，CLKDIV = {div}）：')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.Size = SDRAM_SIZE_{sdr.size}MB;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.ClkDiv = SDRAM_CLKDIV_{div};')
@@ -280,6 +300,19 @@ class SWMTool(QWidget):
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRFC = SDRAM_TRFC_{nRFC};')
+
+                elif mcu in ('SWM342', ):
+                    self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}，CLKDIV = {div}）：')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.ClkDiv = SDRAM_CLKDIV_{div};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.NbrBank = SDRAM_BANK_{sdr.bank};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.NbrRowAddr = SDRAM_ROW_{sdr.nrow};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.NbrColAddr = SDRAM_COLUMN_{sdr.ncol};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRFC};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRRD = SDRAM_TRRD_{nRRD};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRAS = SDRAM_TRAS_{nRAS};')
             
                 self.txtSDRShow.append('SDRAM_Init(&SDRAM_InitStruct);\n\n')
     

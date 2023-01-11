@@ -74,6 +74,11 @@
          <string>SWM341</string>
         </property>
        </item>
+       <item>
+        <property name="text">
+         <string>SWM342</string>
+        </property>
+       </item>
       </widget>
      </item>
      <item>

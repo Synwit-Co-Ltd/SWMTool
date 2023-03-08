@@ -106,10 +106,29 @@ W986416KG_5 = SDRAMInfo(
 )
 
 
+PMS307416CTR_6CN = SDRAMInfo(
+	name = 'PMS307416CTR-6CN',
+	size = 16,
+	bank = 4,
+	nrow = 12,
+	ncol = 9,
+	tCLK = {
+		'2': 10,			# for CAS Latency = 2
+		'3': 6 				# for CAS Latency = 3
+	},
+	tRP  = 18,
+	tRCD = 18,
+	tRFC = 60,
+	tRRD = 12,
+	tRAS = 42
+)
+
+
 Devices = OrderedDict([
 	('W9864G6KH-5', W9864G6KH_5),
     ('W9864G6KH-6', W9864G6KH_6),
     ('W9864G6KH-7', W9864G6KH_7),
     ('W9825G6DH-6', W9825G6DH_6),
-    ('W986416KG-5', W986416KG_5)
+    ('W986416KG-5', W986416KG_5),
+    ('PMS307416CTR-6CN', PMS307416CTR_6CN)
 ])

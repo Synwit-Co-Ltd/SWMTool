@@ -78,6 +78,8 @@ class SWMTool(QWidget):
 
         self.tabMain.setCurrentIndex(0)
 
+        self.cmbSDRChip.addItems(sdrs.keys())
+
         if not self.conf.has_section('CAN'):
             self.conf.add_section('CAN')
             self.conf.set('CAN', 'Baudrate', '100')
@@ -172,8 +174,6 @@ class SWMTool(QWidget):
             self.lblPack.setVisible(True)
             self.cmbPack.setVisible(False)
             self.linFreq.setVisible(True)
-
-            self.cmbSDRChip.addItems(sdrs.keys())
 
         elif page == PAGE_JPG:
             self.lblPack.setVisible(False)

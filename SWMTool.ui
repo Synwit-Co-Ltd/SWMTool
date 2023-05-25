@@ -32,7 +32,7 @@
         </size>
        </property>
        <property name="currentIndex">
-        <number>-1</number>
+        <number>0</number>
        </property>
        <item>
         <property name="text">
@@ -52,11 +52,6 @@
        <item>
         <property name="text">
          <string>SWM211</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM220</string>
         </property>
        </item>
        <item>
@@ -151,12 +146,27 @@
    <item>
     <widget class="QTabWidget" name="tabMain">
      <property name="currentIndex">
-      <number>2</number>
+      <number>3</number>
      </property>
      <widget class="QWidget" name="tabPin">
       <attribute name="title">
        <string>管脚分配</string>
       </attribute>
+      <layout class="QHBoxLayout" name="horizontalLayout_7">
+       <item>
+        <widget class="QListWidget" name="periWidget">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGraphicsView" name="packView"/>
+       </item>
+      </layout>
      </widget>
      <widget class="QWidget" name="tabCAN">
       <attribute name="title">

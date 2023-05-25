@@ -11,6 +11,7 @@ from PyQt5.QtCore import pyqtSlot, pyqtSignal, QThread
 from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox, QFileDialog
 
 from math import ceil
+from package import packages
 from SDRAMInfo import Devices as sdrs
 
 
@@ -34,7 +35,7 @@ class SWMTool(QWidget):
         
         uic.loadUi('SWMTool.ui', self)
 
-        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.1'))
+        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.2'))
         
         self.initSetting()
 
@@ -104,6 +105,9 @@ class SWMTool(QWidget):
     def on_cmbMCU_currentIndexChanged(self, mcu):
 
         self.linFreq.setText(self.MCUFreq[mcu])
+
+        self.cmbPack.clear()
+        self.cmbPack.addItems(packages[self.cmbMCU.currentText()].keys())
 
         if mcu == 'SWM181':
             self.tabMain.setTabVisible(PAGE_CAN, True)
@@ -257,7 +261,7 @@ class SWMTool(QWidget):
         self.txtSDRShow.clear()
 
         for cas, clk in sdr.tCLK.items():
-            fSDR_max = 1000 / clk * 0.85        # MHz, 预留 15% 裕量
+            fSDR_max = 1000 / clk
 
             for div in divs:
                 fSDR = fMCU / div

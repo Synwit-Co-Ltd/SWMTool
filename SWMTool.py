@@ -35,7 +35,7 @@ class SWMTool(QWidget):
         
         uic.loadUi('SWMTool.ui', self)
 
-        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.2'))
+        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.3'))
         
         self.initSetting()
 

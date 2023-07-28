@@ -160,6 +160,24 @@ PMS307416CTR_6CN = SDRAMInfo(
 )
 
 
+H57V2562GTR_50C = SDRAMInfo(
+	name = 'H57V2562GTR-50C',
+	size = 32,
+	bank = 4,
+	nrow = 13,
+	ncol = 9,
+	tCLK = {
+		'2': 10,			# for CAS Latency = 2
+		'3': 5 				# for CAS Latency = 3
+	},
+	tRP  = 15,
+	tRCD = 15,
+	tRFC = 55,
+	tRRD = 10,
+	tRAS = 39
+)
+
+
 Devices = OrderedDict([
 	('W9864G6KH-5', W9864G6KH_5),
     ('W9864G6KH-6', W9864G6KH_6),
@@ -168,5 +186,6 @@ Devices = OrderedDict([
     ('W986416KG-5', W986416KG_5),
     ('W981616JG-5', W981616JG_5),
     ('PMS306416CKR-6CN', PMS306416CKR_6CN),
-    ('PMS307416CTR-6CN', PMS307416CTR_6CN)
+    ('PMS307416CTR-6CN', PMS307416CTR_6CN),
+    ('H57V2562GTR-50C',  H57V2562GTR_50C)
 ])

@@ -254,7 +254,7 @@ class SWMTool(QWidget):
         if   mcu in ('SWM320', ):
             divs = (4,  )
         elif mcu in ('SWM341', ):
-            divs = (1, 2) if fMCU <= 120 else (2, )
+            divs = (1, 2) if fMCU <= 140 else (2, )
         elif mcu in ('SWM342', ):
             divs = (1,  )
 

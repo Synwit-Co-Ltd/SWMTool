@@ -256,7 +256,7 @@ class SWMTool(QWidget):
         elif mcu in ('SWM341', ):
             divs = (1, 2) if fMCU <= 140 else (2, )
         elif mcu in ('SWM342', ):
-            divs = (1,  )
+            divs = (1, 2)
 
         self.txtSDRShow.clear()
 
@@ -286,9 +286,9 @@ class SWMTool(QWidget):
                 if   mcu in ('SWM320', ):
                     self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}）：')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.CellSize = SDRAM_CELLSIZE_{sdr.size*8}Mb;')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.CellBank = SDRAM_CELLBANK_{sdr.bank};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.CellWidth = SDRAM_CELLWIDTH_16;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTMRD = SDRAM_TMRD_5;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRRD = SDRAM_TRRD_3;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRAS = SDRAM_TRAS_{nRFC};')
@@ -301,17 +301,18 @@ class SWMTool(QWidget):
                     self.txtSDRShow.append(f'SDRAM_InitStruct.Size = SDRAM_SIZE_{sdr.size}MB;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.ClkDiv = SDRAM_CLKDIV_{div};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRFC = SDRAM_TRFC_{nRFC};')
 
                 elif mcu in ('SWM342', ):
                     self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}，CLKDIV = {div}）：')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.Size = SDRAM_SIZE_{sdr.size}MB;')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.Width = SDRAM_WIDTH_{sdr.bits}bit;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.ClkDiv = SDRAM_CLKDIV_{div};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.NbrBank = SDRAM_BANK_{sdr.bank};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.NbrRowAddr = SDRAM_ROW_{sdr.nrow};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.NbrColAddr = SDRAM_COLUMN_{sdr.ncol};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
+                    self.txtSDRShow.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRFC};')

@@ -15,7 +15,7 @@ class SDRAMInfo:
 	tCLK: Dict[str, float]	# CLK Cycle Time (ns)
 	tRP : float				# Row precharge time, Ie. Precharge to Activate delay (ns)
 	tRCD: float				# Row to column delay, Ie. Activate to Command delay (ns)
-	tRFC: float				# Refresh/Active to Refresh/Active Command Period (ns)
+	tRC:  float				# Activate to Activate on same bank (ns)
 	tRRD: Union[float, str]	# Activate to Activate on different bank (ns or tCK)
 	tRAS: float				# Activate to Precharge delay (ns)
 
@@ -34,7 +34,7 @@ W981616JG_5 = SDRAMInfo(
 	},
 	tRP  = 15,
 	tRCD = 15,
-	tRFC = 55,
+	tRC  = 55,
 	tRRD = 10,
 	tRAS = 40
 )
@@ -54,7 +54,7 @@ W986416KG_5 = SDRAMInfo(
 	},
 	tRP  = 15,
 	tRCD = 15,
-	tRFC = 55,
+	tRC  = 55,
 	tRRD = 10,
 	tRAS = 40
 )
@@ -74,7 +74,7 @@ W9864G6KH_5 = SDRAMInfo(
 	},
 	tRP  = 15,
 	tRCD = 15,
-	tRFC = 55,
+	tRC  = 55,
 	tRRD = 10,
 	tRAS = 40
 )
@@ -94,7 +94,7 @@ W9864G6KH_6 = SDRAMInfo(
 	},
 	tRP  = 15,
 	tRCD = 15,
-	tRFC = 60,
+	tRC  = 60,
 	tRRD = 12,
 	tRAS = 42
 )
@@ -114,7 +114,7 @@ W9864G6KH_7 = SDRAMInfo(
 	},
 	tRP  = 18,
 	tRCD = 20,
-	tRFC = 65,
+	tRC  = 65,
 	tRRD = 14,
 	tRAS = 45
 )
@@ -134,7 +134,27 @@ W9825G6DH_6 = SDRAMInfo(
 	},
 	tRP  = 15,
 	tRCD = 15,
-	tRFC = 60,
+	tRC  = 60,
+	tRRD = '2tCK',
+	tRAS = 42
+)
+
+
+W9825G6KH_6 = SDRAMInfo(
+	name = 'W9825G6KH-6',
+	size = 32,
+	bits = 16,
+	bank = 4,
+	nrow = 13,
+	ncol = 9,
+	tREF = 64,
+	tCLK = {
+		'2': 7.5,			# for CAS Latency = 2
+		'3': 6 				# for CAS Latency = 3
+	},
+	tRP  = 15,
+	tRCD = 15,
+	tRC  = 60,
 	tRRD = '2tCK',
 	tRAS = 42
 )
@@ -154,7 +174,7 @@ PMS306416CKR_6CN = SDRAMInfo(
 	},
 	tRP  = 18,
 	tRCD = 18,
-	tRFC = 60,
+	tRC  = 60,
 	tRRD = 12,
 	tRAS = 42
 )
@@ -174,7 +194,7 @@ PMS307416CTR_6CN = SDRAMInfo(
 	},
 	tRP  = 18,
 	tRCD = 18,
-	tRFC = 60,
+	tRC  = 60,
 	tRRD = 12,
 	tRAS = 42
 )
@@ -194,7 +214,7 @@ H57V2562GTR_50C = SDRAMInfo(
 	},
 	tRP  = 15,
 	tRCD = 15,
-	tRFC = 55,
+	tRC  = 55,
 	tRRD = 10,
 	tRAS = 39
 )
@@ -207,6 +227,7 @@ Devices = OrderedDict([
 	('W9864G6KH-6', W9864G6KH_6),
 	('W9864G6KH-7', W9864G6KH_7),
 	('W9825G6DH-6', W9825G6DH_6),
+	('W9825G6KH-6', W9825G6KH_6),
 	('PMS306416CKR-6CN', PMS306416CKR_6CN),
 	('PMS307416CTR-6CN', PMS307416CTR_6CN),
 	('H57V2562GTR-50C',  H57V2562GTR_50C),

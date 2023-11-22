@@ -16,6 +16,7 @@ class SDRAMInfo:
 	tRP : float				# Row precharge time, Ie. Precharge to Activate delay (ns)
 	tRCD: float				# Row to column delay, Ie. Activate to Command delay (ns)
 	tRC:  float				# Activate to Activate on same bank (ns)
+							# 若 SDRAM 颗粒除了 tRC，还有 tRFC 或 tRRC 参数，则填写二者中较大的值
 	tRRD: Union[float, str]	# Activate to Activate on different bank (ns or tCK)
 	tRAS: float				# Activate to Precharge delay (ns)
 

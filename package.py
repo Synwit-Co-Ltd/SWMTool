@@ -20,7 +20,7 @@ packages = {
 	'SWM260': {},
 	'SWM320': {},
 	'SWM341': {},
-	'SWM342': {}
+	'SWM350': {}
 }
 
 for file in os.listdir('package'):

@@ -59,7 +59,7 @@ class SWMTool(QWidget):
             self.conf.set('mcu.pack', 'SWM260', 'SWM260CxTy')
             self.conf.set('mcu.pack', 'SWM320', 'SWM320RxTy')
             self.conf.set('mcu.pack', 'SWM341', 'SWM341RxTy')
-            self.conf.set('mcu.pack', 'SWM342', 'SWM342RxTy')
+            self.conf.set('mcu.pack', 'SWM350', 'SWM350RxTy')
 
         if not self.conf.has_section('mcu.freq'):
             self.conf.add_section('mcu.freq')
@@ -70,10 +70,10 @@ class SWMTool(QWidget):
             self.conf.set('mcu.freq', 'SWM260', '60')
             self.conf.set('mcu.freq', 'SWM320', '120')
             self.conf.set('mcu.freq', 'SWM341', '150')
-            self.conf.set('mcu.freq', 'SWM342', '150')
+            self.conf.set('mcu.freq', 'SWM350', '150')
 
-        self.MCUPack = {mcu: self.conf.get('mcu.pack', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM342')}
-        self.MCUFreq = {mcu: self.conf.get('mcu.freq', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM342')}
+        self.MCUPack = {mcu: self.conf.get('mcu.pack', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM350')}
+        self.MCUFreq = {mcu: self.conf.get('mcu.freq', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM350')}
 
         self.cmbMCU.setCurrentIndex(self.cmbMCU.findText(self.conf.get('global', 'mcu')))
 
@@ -152,7 +152,7 @@ class SWMTool(QWidget):
 
             self.tabMain.setTabVisible(PAGE_SDR, True)
 
-        elif mcu =='SWM342':
+        elif mcu =='SWM350':
             self.tabMain.setTabVisible(PAGE_CAN, True)
             self.CAN_preDiv = 2
             self.CAN_brpBit = 10
@@ -253,7 +253,7 @@ class SWMTool(QWidget):
             divs = (4,  )
         elif mcu in ('SWM341', ):
             divs = (1, 2) if fMCU <= 140 else (2, )
-        elif mcu in ('SWM342', ):
+        elif mcu in ('SWM350', ):
             divs = (1, 2)
 
         self.txtSDRShow.clear()
@@ -306,7 +306,7 @@ class SWMTool(QWidget):
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
 
-                elif mcu in ('SWM342', ):
+                elif mcu in ('SWM350', ):
                     self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}，CLKDIV = {div}）：')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.Size = SDRAM_SIZE_{sdr.size}MB;')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.Width = SDRAM_WIDTH_{sdr.bits}bit;')

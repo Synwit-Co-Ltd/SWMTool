@@ -13,7 +13,7 @@
   <property name="windowTitle">
    <string>SWMTool</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout">
+  <layout class="QVBoxLayout" name="vLayout">
    <item>
     <layout class="QHBoxLayout" name="hLayout">
      <item>
@@ -27,12 +27,12 @@
       <widget class="QComboBox" name="cmbMCU">
        <property name="minimumSize">
         <size>
-         <width>80</width>
+         <width>120</width>
          <height>0</height>
         </size>
        </property>
        <property name="currentIndex">
-        <number>0</number>
+        <number>-1</number>
        </property>
        <item>
         <property name="text">
@@ -93,19 +93,9 @@
       </spacer>
      </item>
      <item>
-      <widget class="QLabel" name="lblPack">
+      <widget class="QLabel" name="lblFreq">
        <property name="text">
-        <string>封装：</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QComboBox" name="cmbPack">
-       <property name="minimumSize">
-        <size>
-         <width>120</width>
-         <height>0</height>
-        </size>
+        <string>主频（MHz）：</string>
        </property>
       </widget>
      </item>
@@ -119,7 +109,7 @@
        </property>
        <property name="maximumSize">
         <size>
-         <width>80</width>
+         <width>120</width>
          <height>16777215</height>
         </size>
        </property>
@@ -146,35 +136,15 @@
    <item>
     <widget class="QTabWidget" name="tabMain">
      <property name="currentIndex">
-      <number>3</number>
+      <number>0</number>
      </property>
-     <widget class="QWidget" name="tabPin">
-      <attribute name="title">
-       <string>管脚分配</string>
-      </attribute>
-      <layout class="QHBoxLayout" name="horizontalLayout_7">
-       <item>
-        <widget class="QListWidget" name="periWidget">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QGraphicsView" name="packView"/>
-       </item>
-      </layout>
-     </widget>
      <widget class="QWidget" name="tabCAN">
       <attribute name="title">
        <string>CAN 波特率</string>
       </attribute>
-      <layout class="QVBoxLayout" name="verticalLayout_2">
+      <layout class="QVBoxLayout" name="vLayoutCAN">
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout">
+        <layout class="QHBoxLayout" name="hLayoutCAN">
          <item>
           <widget class="QLabel" name="lblCANBaud">
            <property name="text">
@@ -202,7 +172,7 @@
           </widget>
          </item>
          <item>
-          <spacer name="hSpacerC1">
+          <spacer name="hSpacerCAN1">
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
@@ -244,7 +214,7 @@
           </widget>
          </item>
          <item>
-          <spacer name="hSpacerC2">
+          <spacer name="hSpacerCAN2">
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
@@ -278,9 +248,9 @@
       <attribute name="title">
        <string>SDRAM 参数</string>
       </attribute>
-      <layout class="QVBoxLayout" name="verticalLayout_5">
+      <layout class="QVBoxLayout" name="vLayoutSDR">
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_5">
+        <layout class="QHBoxLayout" name="hLayoutSDR">
          <item>
           <widget class="QLabel" name="lblSDRChip">
            <property name="text">
@@ -333,9 +303,9 @@
       <attribute name="title">
        <string>JPEG2Code</string>
       </attribute>
-      <layout class="QVBoxLayout" name="verticalLayout_3">
+      <layout class="QVBoxLayout" name="vLayoutJPG">
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_2">
+        <layout class="QHBoxLayout" name="hLayoutJPG1">
          <item>
           <widget class="QLabel" name="lblJPGFile">
            <property name="text">
@@ -356,7 +326,7 @@
         </layout>
        </item>
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <layout class="QHBoxLayout" name="hLayoutJPG2">
          <item>
           <widget class="QLabel" name="lblJPGOut">
            <property name="text">
@@ -434,9 +404,9 @@
       <attribute name="title">
        <string>Wave2Code</string>
       </attribute>
-      <layout class="QVBoxLayout" name="verticalLayout_4">
+      <layout class="QVBoxLayout" name="vLayoutWav">
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_4">
+        <layout class="QHBoxLayout" name="hLayoutWav1">
          <item>
           <widget class="QLabel" name="lblWavFile">
            <property name="text">
@@ -457,7 +427,7 @@
         </layout>
        </item>
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_6">
+        <layout class="QHBoxLayout" name="hLayoutWav2">
          <item>
           <widget class="QLabel" name="lblWavObit">
            <property name="text">

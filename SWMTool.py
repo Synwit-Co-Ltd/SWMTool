@@ -11,14 +11,13 @@ from PyQt5.QtCore import pyqtSlot, pyqtSignal, QThread
 from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox, QFileDialog
 
 from math import ceil
-from package import packages
 from SDRAMInfo import Devices as sdrs
 
 
-PAGE_CAN = 1
-PAGE_SDR = 2    # SDRAM
-PAGE_JPG = 3    # JPEG2Code
-PAGE_WAV = 4    # Wave2Code
+PAGE_CAN = 0
+PAGE_SDR = 1    # SDRAM
+PAGE_JPG = 2    # JPEG2Code
+PAGE_WAV = 3    # Wave2Code
 
 
 '''
@@ -35,7 +34,7 @@ class SWMTool(QWidget):
         
         uic.loadUi('SWMTool.ui', self)
 
-        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.6'))
+        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.7'))
         
         self.initSetting()
 
@@ -50,17 +49,6 @@ class SWMTool(QWidget):
             self.conf.add_section('global')
             self.conf.set('global', 'mcu', 'SWM341')
 
-        if not self.conf.has_section('mcu.pack'):
-            self.conf.add_section('mcu.pack')
-            self.conf.set('mcu.pack', 'SWM181', 'SWM181CxTy')
-            self.conf.set('mcu.pack', 'SWM190', 'SWM190CxTy')
-            self.conf.set('mcu.pack', 'SWM201', 'SWM201CxTy')
-            self.conf.set('mcu.pack', 'SWM211', 'SWM211CxTy')
-            self.conf.set('mcu.pack', 'SWM260', 'SWM260CxTy')
-            self.conf.set('mcu.pack', 'SWM320', 'SWM320RxTy')
-            self.conf.set('mcu.pack', 'SWM341', 'SWM341RxTy')
-            self.conf.set('mcu.pack', 'SWM350', 'SWM350RxTy')
-
         if not self.conf.has_section('mcu.freq'):
             self.conf.add_section('mcu.freq')
             self.conf.set('mcu.freq', 'SWM181', '24')
@@ -72,12 +60,9 @@ class SWMTool(QWidget):
             self.conf.set('mcu.freq', 'SWM341', '150')
             self.conf.set('mcu.freq', 'SWM350', '150')
 
-        self.MCUPack = {mcu: self.conf.get('mcu.pack', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM350')}
         self.MCUFreq = {mcu: self.conf.get('mcu.freq', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM350')}
 
         self.cmbMCU.setCurrentIndex(self.cmbMCU.findText(self.conf.get('global', 'mcu')))
-
-        self.tabMain.setCurrentIndex(0)
 
         self.cmbSDRChip.addItems(sdrs.keys())
 
@@ -105,9 +90,6 @@ class SWMTool(QWidget):
     def on_cmbMCU_currentIndexChanged(self, mcu):
 
         self.linFreq.setText(self.MCUFreq[mcu])
-
-        self.cmbPack.clear()
-        self.cmbPack.addItems(packages[self.cmbMCU.currentText()].keys())
 
         if mcu == 'SWM181':
             self.tabMain.setTabVisible(PAGE_CAN, True)
@@ -161,32 +143,12 @@ class SWMTool(QWidget):
 
     @pyqtSlot(int)
     def on_tabMain_currentChanged(self, page):
-        if page == 0:
-            self.lblPack.setText('封装：')
-            self.lblPack.setVisible(True)
-            self.cmbPack.setVisible(True)
-            self.linFreq.setVisible(False)
-
-        elif page == PAGE_CAN:
-            self.lblPack.setText('主频（MHz）：')
-            self.lblPack.setVisible(True)
-            self.cmbPack.setVisible(False)
+        if page in (PAGE_CAN, PAGE_SDR):
+            self.lblFreq.setVisible(True)
             self.linFreq.setVisible(True)
 
-        elif page == PAGE_SDR:
-            self.lblPack.setText('主频（MHz）：')
-            self.lblPack.setVisible(True)
-            self.cmbPack.setVisible(False)
-            self.linFreq.setVisible(True)
-
-        elif page == PAGE_JPG:
-            self.lblPack.setVisible(False)
-            self.cmbPack.setVisible(False)
-            self.linFreq.setVisible(False)
-
-        elif page == PAGE_WAV:
-            self.lblPack.setVisible(False)
-            self.cmbPack.setVisible(False)
+        else:
+            self.lblFreq.setVisible(False)
             self.linFreq.setVisible(False)
 
     @pyqtSlot()

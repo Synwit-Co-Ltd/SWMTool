@@ -34,46 +34,6 @@
        <property name="currentIndex">
         <number>-1</number>
        </property>
-       <item>
-        <property name="text">
-         <string>SWM181</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM190</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM201</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM211</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM260</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM320</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM341</string>
-        </property>
-       </item>
-       <item>
-        <property name="text">
-         <string>SWM350</string>
-        </property>
-       </item>
       </widget>
      </item>
      <item>

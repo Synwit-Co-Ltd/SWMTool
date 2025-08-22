@@ -34,7 +34,7 @@ class SWMTool(QWidget):
         
         uic.loadUi('SWMTool.ui', self)
 
-        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.7'))
+        self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.8'))
         
         self.initSetting()
 
@@ -55,12 +55,16 @@ class SWMTool(QWidget):
             self.conf.set('mcu.freq', 'SWM190', '60')
             self.conf.set('mcu.freq', 'SWM201', '24')
             self.conf.set('mcu.freq', 'SWM211', '60')
+            self.conf.set('mcu.freq', 'SWM221', '72')
             self.conf.set('mcu.freq', 'SWM260', '60')
+            self.conf.set('mcu.freq', 'SWM261', '72')
             self.conf.set('mcu.freq', 'SWM320', '120')
-            self.conf.set('mcu.freq', 'SWM341', '150')
+            self.conf.set('mcu.freq', 'SWM341', '140')
             self.conf.set('mcu.freq', 'SWM350', '150')
 
-        self.MCUFreq = {mcu: self.conf.get('mcu.freq', mcu) for mcu in ('SWM181', 'SWM190', 'SWM201', 'SWM211', 'SWM260', 'SWM320', 'SWM341', 'SWM350')}
+        self.MCUFreq = {mcu.upper(): self.conf.get('mcu.freq', mcu) for mcu in self.conf['mcu.freq'].keys()}
+
+        self.cmbMCU.addItems(self.MCUFreq.keys())
 
         self.cmbMCU.setCurrentIndex(self.cmbMCU.findText(self.conf.get('global', 'mcu')))
 
@@ -98,25 +102,15 @@ class SWMTool(QWidget):
 
             self.tabMain.setTabVisible(PAGE_SDR, False)
 
-        elif mcu == 'SWM190':
+        elif mcu in ('SWM190', 'SWM201', 'SWM260'):
             self.tabMain.setTabVisible(PAGE_CAN, False)
 
             self.tabMain.setTabVisible(PAGE_SDR, False)
 
-        elif mcu == 'SWM201':
-            self.tabMain.setTabVisible(PAGE_CAN, False)
-
-            self.tabMain.setTabVisible(PAGE_SDR, False)
-
-        elif mcu == 'SWM211':
+        elif mcu in ('SWM211', 'SWM221', 'SWM261'):
             self.tabMain.setTabVisible(PAGE_CAN, True)
             self.CAN_preDiv = 2
             self.CAN_brpBit = 10
-
-            self.tabMain.setTabVisible(PAGE_SDR, False)
-
-        elif mcu == 'SWM260':
-            self.tabMain.setTabVisible(PAGE_CAN, False)
 
             self.tabMain.setTabVisible(PAGE_SDR, False)
 
@@ -127,14 +121,14 @@ class SWMTool(QWidget):
 
             self.tabMain.setTabVisible(PAGE_SDR, True)
 
-        elif mcu =='SWM341':
+        elif mcu == 'SWM341':
             self.tabMain.setTabVisible(PAGE_CAN, True)
             self.CAN_preDiv = 2
             self.CAN_brpBit = 10
 
             self.tabMain.setTabVisible(PAGE_SDR, True)
 
-        elif mcu =='SWM350':
+        elif mcu == 'SWM350':
             self.tabMain.setTabVisible(PAGE_CAN, True)
             self.CAN_preDiv = 2
             self.CAN_brpBit = 10

@@ -56,9 +56,12 @@ class SWMTool(QWidget):
             self.conf.set('mcu.freq', 'SWM201', '24')
             self.conf.set('mcu.freq', 'SWM211', '60')
             self.conf.set('mcu.freq', 'SWM221', '72')
+            self.conf.set('mcu.freq', 'SWM231', '24')
+            self.conf.set('mcu.freq', 'SWM241', '24')
             self.conf.set('mcu.freq', 'SWM260', '60')
             self.conf.set('mcu.freq', 'SWM261', '72')
             self.conf.set('mcu.freq', 'SWM320', '120')
+            self.conf.set('mcu.freq', 'SWM330', '120')
             self.conf.set('mcu.freq', 'SWM341', '140')
             self.conf.set('mcu.freq', 'SWM350', '150')
 
@@ -102,12 +105,12 @@ class SWMTool(QWidget):
 
             self.tabMain.setTabVisible(PAGE_SDR, False)
 
-        elif mcu in ('SWM190', 'SWM201', 'SWM260'):
+        elif mcu in ('SWM190', 'SWM201', 'SWM231', 'SWM260'):
             self.tabMain.setTabVisible(PAGE_CAN, False)
 
             self.tabMain.setTabVisible(PAGE_SDR, False)
 
-        elif mcu in ('SWM211', 'SWM221', 'SWM261'):
+        elif mcu in ('SWM211', 'SWM221', 'SWM241', 'SWM261', 'SWM330', 'SWM350'):
             self.tabMain.setTabVisible(PAGE_CAN, True)
             self.CAN_preDiv = 2
             self.CAN_brpBit = 10
@@ -122,13 +125,6 @@ class SWMTool(QWidget):
             self.tabMain.setTabVisible(PAGE_SDR, True)
 
         elif mcu == 'SWM341':
-            self.tabMain.setTabVisible(PAGE_CAN, True)
-            self.CAN_preDiv = 2
-            self.CAN_brpBit = 10
-
-            self.tabMain.setTabVisible(PAGE_SDR, True)
-
-        elif mcu == 'SWM350':
             self.tabMain.setTabVisible(PAGE_CAN, True)
             self.CAN_preDiv = 2
             self.CAN_brpBit = 10
@@ -209,8 +205,6 @@ class SWMTool(QWidget):
             divs = (4,  )
         elif mcu in ('SWM341', ):
             divs = (1, 2) if fMCU <= 140 else (2, )
-        elif mcu in ('SWM350', ):
-            divs = (1, 2)
 
         self.txtSDRShow.clear()
 
@@ -261,19 +255,6 @@ class SWMTool(QWidget):
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
-
-                elif mcu in ('SWM350', ):
-                    self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}，CLKDIV = {div}）：')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.Size = SDRAM_SIZE_{sdr.size}MB;')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.Width = SDRAM_WIDTH_{sdr.bits}bit;')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.ClkDiv = SDRAM_CLKDIV_{div};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRRD = SDRAM_TRRD_{nRRD};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRAS = SDRAM_TRAS_{nRAS};')
             
                 self.txtSDRShow.append('SDRAM_Init(&SDRAM_InitStruct);\n\n')
     

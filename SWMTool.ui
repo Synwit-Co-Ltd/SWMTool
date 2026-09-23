@@ -241,7 +241,7 @@
           </widget>
          </item>
          <item>
-          <widget class="QComboBox" name="cmbSDRChip">
+          <widget class="QComboBox" name="cmbSDRAM">
            <property name="minimumSize">
             <size>
              <width>160</width>

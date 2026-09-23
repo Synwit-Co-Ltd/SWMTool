@@ -51,42 +51,32 @@ class SWMTool(QWidget):
             self.conf.add_section('global')
             self.conf.set('global', 'mcu', 'SWM341')
 
-        if not self.conf.has_section('mcu.freq'):
-            self.conf.add_section('mcu.freq')
-            self.conf.set('mcu.freq', 'SWM181', '24')
-            self.conf.set('mcu.freq', 'SWM190', '60')
-            self.conf.set('mcu.freq', 'SWM201', '24')
-            self.conf.set('mcu.freq', 'SWM211', '60')
-            self.conf.set('mcu.freq', 'SWM221', '72')
-            self.conf.set('mcu.freq', 'SWM231', '24')
-            self.conf.set('mcu.freq', 'SWM241', '24')
-            self.conf.set('mcu.freq', 'SWM260', '60')
-            self.conf.set('mcu.freq', 'SWM261', '72')
-            self.conf.set('mcu.freq', 'SWM320', '120')
-            self.conf.set('mcu.freq', 'SWM330', '120')
-            self.conf.set('mcu.freq', 'SWM341', '140')
-            self.conf.set('mcu.freq', 'SWM350', '150')
+        mcus = sorted([name for name in os.listdir('package') if name.startswith('SWM')])
+        for mcu in mcus:
+            if not self.conf.has_section(mcu):
+                self.conf.add_section(mcu)
+                self.conf.set(mcu, 'pack', '')
+                self.conf.set(mcu, 'freq', '48')
+                self.conf.set(mcu, 'sdram', '')
+                self.conf.set(mcu, 'can.baudrate', '100')
+                self.conf.set(mcu, 'can.sampoint', '75')
 
-        self.MCUFreq = {mcu.upper(): self.conf.get('mcu.freq', mcu) for mcu in self.conf['mcu.freq'].keys()}
-
-        self.cmbMCU.addItems(self.MCUFreq.keys())
-
+        self.cmbMCU.addItems(mcus)
         self.cmbMCU.setCurrentIndex(self.cmbMCU.findText(self.conf.get('global', 'mcu')))
-
-        self.cmbSDRChip.addItems(sdrs.keys())
-
-        if not self.conf.has_section('CAN'):
-            self.conf.add_section('CAN')
-            self.conf.set('CAN', 'Baudrate', '100')
-            self.conf.set('CAN', 'Sample Point', '75')
-
-        self.linCANBaud.setText(self.conf.get('CAN', 'Baudrate'))
-        self.linCANSamp.setText(self.conf.get('CAN', 'Sample Point'))
 
     @pyqtSlot(str)
     def on_cmbMCU_currentIndexChanged(self, mcu):
+        self.cmbPack.clear()
+        self.cmbPack.addItems(sorted(name[:-4] for name in os.listdir(f'package/{mcu}') if name.endswith('.txt')))
 
-        self.linFreq.setText(self.MCUFreq[mcu])
+        self.cmbSDRAM.clear()
+        self.cmbSDRAM.addItems(sdrs.keys())     # todo: add SDRAM according to the MCU model.
+        
+        self.linFreq.setText(self.conf.get(mcu, 'freq'))
+        self.cmbPack.setCurrentText(self.conf.get(mcu, 'pack'))
+        self.cmbSDRAM.setCurrentText(self.conf.get(mcu, 'sdram'))
+        self.linCANBaud.setText(self.conf.get(mcu, 'can.baudrate'))
+        self.linCANSamp.setText(self.conf.get(mcu, 'can.sampoint'))
 
         if mcu == 'SWM181':
             self.tabMain.setTabVisible(PAGE_CAN, True)
@@ -173,7 +163,10 @@ class SWMTool(QWidget):
             self.txtCANShow.append('要求的配置无法实现')
 
     @pyqtSlot(str)
-    def on_cmbSDRChip_currentTextChanged(self, sdr):
+    def on_cmbSDRAM_currentTextChanged(self, sdr):
+        if not sdr:
+            return
+        
         sdr = sdrs[sdr]
 
         self.txtSDRShow.clear()
@@ -195,7 +188,7 @@ class SWMTool(QWidget):
             return
 
         mcu = self.cmbMCU.currentText()
-        sdr = sdrs[self.cmbSDRChip.currentText()]
+        sdr = sdrs[self.cmbSDRAM.currentText()]
 
         if   mcu in ('SWM320', ):
             divs = (4,  )
@@ -256,9 +249,11 @@ class SWMTool(QWidget):
 
     def closeEvent(self, evt):
         self.conf.set('global', 'mcu', self.cmbMCU.currentText())
-        self.conf.set('mcu.freq', self.cmbMCU.currentText(), self.linFreq.text())
-        self.conf.set('CAN', 'Baudrate', self.linCANBaud.text())
-        self.conf.set('CAN', 'Sample Point', self.linCANSamp.text())
+        self.conf.set(self.cmbMCU.currentText(), 'freq', self.linFreq.text())
+        self.conf.set(self.cmbMCU.currentText(), 'pack', self.cmbPack.currentText())
+        self.conf.set(self.cmbMCU.currentText(), 'sdram', self.cmbSDRAM.currentText())
+        self.conf.set(self.cmbMCU.currentText(), 'can.baudrate', self.linCANBaud.text())
+        self.conf.set(self.cmbMCU.currentText(), 'can.sampoint', self.linCANSamp.text())
         self.conf.write(open('setting.ini', 'w', encoding='utf-8'))
 
 

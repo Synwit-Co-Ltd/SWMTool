@@ -64,17 +64,10 @@ class PinConfigPage(QtCore.QObject):
         win.tabMain.currentChanged.connect(self.onPageChanged)
 
         self.onMcuChanged(win.cmbMCU.currentText())         # 主窗口初始化时的选中不会被信号通知，这里补一次
+        self.onPackChanged(win.cmbPack.currentText())
 
     def onMcuChanged(self, mcu):
         self.portFuncs = self.loadPortFuncs(os.path.join('package', mcu, mcu + '_port.h'))
-
-        packDir = os.path.join('package', mcu)
-        packs = sorted(f[:-4] for f in os.listdir(packDir) if f.endswith('.txt')) \
-                if os.path.isdir(packDir) else []
-        self.win.cmbPack.clear()                            # clear() 会触发一次空串的 onPackChanged，重置状态
-        self.win.cmbPack.addItems(packs)
-        sel = self.win.cmbPack.findText(self.win.conf.get('mcu.pack', mcu, fallback=''))
-        self.win.cmbPack.setCurrentIndex(sel if sel >= 0 else (0 if packs else -1))
 
     def onPackChanged(self, pack):
         mcu = self.win.cmbMCU.currentText()
@@ -104,11 +97,6 @@ class PinConfigPage(QtCore.QObject):
                     self.packDoc = None
 
         self.drawPack()
-
-        # 记住该型号选中的封装（setting.ini 由主窗口 closeEvent 统一写出）
-        if not self.win.conf.has_section('mcu.pack'):
-            self.win.conf.add_section('mcu.pack')
-        self.win.conf.set('mcu.pack', mcu, pack)
 
     def onPageChanged(self, page):
         if page == self.win.tabMain.indexOf(self.win.tabPIN):

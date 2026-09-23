@@ -1,8 +1,6 @@
 #! python3
 import os
 import sys
-import wave
-import array
 import collections
 import configparser
 
@@ -17,7 +15,6 @@ from SDRAMInfo import Devices as sdrs
 PAGE_CAN = 0
 PAGE_SDR = 1    # SDRAM
 PAGE_JPG = 2    # JPEG2Code
-PAGE_WAV = 3    # Wave2Code
 
 
 '''
@@ -86,12 +83,6 @@ class SWMTool(QWidget):
             self.conf.set('JPEG', 'Path', '')
 
         self.linJPGFile.setText(self.conf.get('JPEG', 'Path'))
-
-        if not self.conf.has_section('Wave'):
-            self.conf.add_section('Wave')
-            self.conf.set('Wave', 'Path', '')
-
-        self.linWavFile.setText(self.conf.get('Wave', 'Path'))
 
     @pyqtSlot(str)
     def on_cmbMCU_currentIndexChanged(self, mcu):
@@ -321,145 +312,12 @@ class SWMTool(QWidget):
         self.txtJPGShow.append(txt)
         self.txtJPGShow.moveCursor(QtGui.QTextCursor.Start)
 
-    @pyqtSlot()
-    def on_btnWavFile_clicked(self):
-        path, filter = QFileDialog.getOpenFileName(caption='Wave文件选择', filter='JPEG (*.wav)', directory=self.linWavFile.text())
-        if path:
-            self.linWavFile.setText(path)
-
-    @pyqtSlot(str)
-    def on_linWavFile_textChanged(self, path):
-        try:
-            wav = wave.open(path, 'rb')
-
-            nchannels, sampwidth, framerate, nframes = wav.getparams()[:4]
-
-            wav.close()
-
-        except Exception as ex:
-            self.txtWavShow.setText(f'Open Wave file fail!')
-
-        else:
-            self.txtWavShow.setText(f'声道数：{nchannels}, 量化位数：{sampwidth*8}, 采样频率：{framerate}, 采样点数：{nframes}')
-
-    @pyqtSlot()
-    def on_btnWavConv_clicked(self):
-        self.txtWavShow.clear()
-
-        if not self.chkWavAll.isChecked():
-            self.wave_convert(self.linWavFile.text())
-
-        else:
-            path, _ = os.path.split(self.linWavFile.text())
-            for name in os.listdir(path):
-                if name.endswith('.wav'):
-                    self.wave_convert(os.path.join(path, name).replace('\\', '/'))
-
-    def wave_convert(self, wavFile):
-        self.txtWavShow.moveCursor(QtGui.QTextCursor.End)
-        self.txtWavShow.append('{}{}'.format('\n' if self.txtWavShow.toPlainText() else '', wavFile))
-
-        try:
-            wav = wave.open(wavFile, 'rb')
-
-            nchannels, sampwidth, framerate, nframes = wav.getparams()[:4]
-
-            wavbin = wav.readframes(nframes)
-
-            wav.close()
-
-        except Exception as ex:
-            self.txtWavShow.moveCursor(QtGui.QTextCursor.End)
-            self.txtWavShow.append(f'  Open Wave file fail!')
-
-        else:
-            self.txtWavShow.moveCursor(QtGui.QTextCursor.End)
-            self.txtWavShow.append(f'  声道数：{nchannels}, 量化位数：{sampwidth*8}, 采样频率：{framerate}, 采样点数：{nframes}')
-
-            path, name = os.path.split(wavFile)
-            name, _ = os.path.splitext(name)
-
-            if sampwidth == 1:
-                wavArr = array.array('B', wavbin)
-
-                if self.cmbWavObit.currentText() == '16-bit':
-                    sampwidth = 2
-
-                    wavArr = array.array('H', [x << 8 for x in wavArr])
-
-            elif sampwidth == 2:
-                wavArr = array.array('H', wavbin)
-
-                if self.cmbWavObit.currentText() == '8-bit':
-                    sampwidth = 1
-
-                    wavArr = array.array('B', [x >> 8 for x in wavArr])
-
-            else:
-                self.txtWavShow.moveCursor(QtGui.QTextCursor.End)
-                self.txtWavShow.append(f'  Sample Width > 16-bit, Not Support!')
-                return
-
-            if nchannels == 1:
-                if sampwidth == 1:
-                    txt = f'const unsigned char wave_{name}[{nframes}] = {{\n'
-                    
-                elif sampwidth == 2:
-                    txt = f'const unsigned short wave_{name}[{nframes}] = {{\n'
-                
-                for i, x in enumerate(wavArr):
-                    txt += f'0x{x:02X}, ' if sampwidth == 1 else f'0x{x:04X}, '
-                    if i%16 == 15: txt += '\n'
-                txt += '};\n'
-                
-            elif nchannels == 2:
-                if sampwidth == 1:
-                    txtL = f'const unsigned char waveL_{name}[{nframes}] = {{\n'
-                    txtR = f'const unsigned char waveR_{name}[{nframes}] = {{\n'
-
-                elif sampwidth == 2:
-                    txtL = f'const unsigned short waveL_{name}[{nframes}] = {{\n'
-                    txtR = f'const unsigned short waveR_{name}[{nframes}] = {{\n'
-
-                wavArrL, wavArrR = wavArr[0::2], wavArr[1::2]
-
-                for i, x in enumerate(wavArrL):
-                    txtL += f'0x{x:02X}, ' if sampwidth == 1 else f'0x{x:04X}, '
-                    if i%16 == 15: txtL += '\n'
-                txtL += '};\n'
-
-                for i, x in enumerate(wavArrR):
-                    txtR += f'0x{x:02X}, ' if sampwidth == 1 else f'0x{x:04X}, '
-                    if i%16 == 15: txtR += '\n'
-                txtR += '};\n'
-
-                txt = f'{txtL}\n\n{txtR}'
-
-            else:
-                self.txtWavShow.moveCursor(QtGui.QTextCursor.End)
-                self.txtWavShow.append(f'  Channel Count > 2, Not Support!')
-                return
-
-            try:
-                path = os.path.join(path, f'{name}.c').replace('\\', '/')
-
-                open(path, 'w', encoding='utf-8').write(txt)
-
-            except Exception as ex:
-                self.txtWavShow.moveCursor(QtGui.QTextCursor.End)
-                self.txtWavShow.append(f'  Write "{path}" Fail!')
-
-            else:
-                self.txtWavShow.moveCursor(QtGui.QTextCursor.End)
-                self.txtWavShow.append(f'  Write "{path}" Success!')
-
     def closeEvent(self, evt):
         self.conf.set('global', 'mcu', self.cmbMCU.currentText())
         self.conf.set('mcu.freq', self.cmbMCU.currentText(), self.linFreq.text())
         self.conf.set('CAN', 'Baudrate', self.linCANBaud.text())
         self.conf.set('CAN', 'Sample Point', self.linCANSamp.text())
         self.conf.set('JPEG', 'Path', self.linJPGFile.text())
-        self.conf.set('Wave', 'Path', self.linWavFile.text())
         self.conf.write(open('setting.ini', 'w', encoding='utf-8'))
 
 

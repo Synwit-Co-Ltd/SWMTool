@@ -10,10 +10,12 @@ from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox, QFileDialog
 
 from math import ceil
 from SDRAMInfo import Devices as sdrs
+from PinConfig import PinConfigPage
 
 
-PAGE_CAN = 0
-PAGE_SDR = 1    # SDRAM
+PAGE_PIN = 0
+PAGE_CAN = 1
+PAGE_SDR = 2    # SDRAM
 
 
 '''
@@ -33,6 +35,10 @@ class SWMTool(QWidget):
         self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.8'))
         
         self.initSetting()
+
+        self.pinConfig = PinConfigPage(self)
+
+        self.on_tabMain_currentChanged(self.tabMain.currentIndex())
 
     def initSetting(self):
         if not os.path.exists('setting.ini'):
@@ -121,7 +127,13 @@ class SWMTool(QWidget):
             self.lblFreq.setVisible(True)
             self.linFreq.setVisible(True)
 
+            self.lblPack.setVisible(False)
+            self.cmbPack.setVisible(False)
+
         else:
+            self.lblPack.setVisible(True)
+            self.cmbPack.setVisible(True)
+
             self.lblFreq.setVisible(False)
             self.linFreq.setVisible(False)
 

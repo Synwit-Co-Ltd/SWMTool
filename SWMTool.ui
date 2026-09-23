@@ -53,6 +53,23 @@
       </spacer>
      </item>
      <item>
+      <widget class="QLabel" name="lblPack">
+       <property name="text">
+        <string>封装：</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="cmbPack">
+       <property name="minimumSize">
+        <size>
+         <width>120</width>
+         <height>0</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QLabel" name="lblFreq">
        <property name="text">
         <string>主频（MHz）：</string>
@@ -98,6 +115,11 @@
      <property name="currentIndex">
       <number>0</number>
      </property>
+     <widget class="QWidget" name="tabPIN">
+      <attribute name="title">
+       <string>引脚功能配置</string>
+      </attribute>
+     </widget>
      <widget class="QWidget" name="tabCAN">
       <attribute name="title">
        <string>CAN 波特率</string>

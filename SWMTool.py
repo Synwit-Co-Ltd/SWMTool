@@ -4,8 +4,8 @@ import sys
 import collections
 import configparser
 
-from PyQt5 import QtCore, QtGui, QtWidgets, uic
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, QThread
+from PyQt5 import QtCore, QtWidgets, uic
+from PyQt5.QtCore import pyqtSlot, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QWidget, QMessageBox, QFileDialog
 
 from math import ceil
@@ -14,7 +14,6 @@ from SDRAMInfo import Devices as sdrs
 
 PAGE_CAN = 0
 PAGE_SDR = 1    # SDRAM
-PAGE_JPG = 2    # JPEG2Code
 
 
 '''
@@ -77,12 +76,6 @@ class SWMTool(QWidget):
 
         self.linCANBaud.setText(self.conf.get('CAN', 'Baudrate'))
         self.linCANSamp.setText(self.conf.get('CAN', 'Sample Point'))
-
-        if not self.conf.has_section('JPEG'):
-            self.conf.add_section('JPEG')
-            self.conf.set('JPEG', 'Path', '')
-
-        self.linJPGFile.setText(self.conf.get('JPEG', 'Path'))
 
     @pyqtSlot(str)
     def on_cmbMCU_currentIndexChanged(self, mcu):
@@ -248,76 +241,12 @@ class SWMTool(QWidget):
                     self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
             
                 self.txtSDRShow.append('SDRAM_Init(&SDRAM_InitStruct);\n\n')
-    
-    @pyqtSlot()
-    def on_btnJPGFile_clicked(self):
-        path, filter = QFileDialog.getOpenFileName(caption='JPEG文件选择', filter='JPEG (*.jpg *.jpeg *.bmp *.ico)', directory=self.linJPGFile.text())
-        if path:
-            self.linJPGFile.setText(path)
-
-    @pyqtSlot()
-    def on_btnJPGConv_clicked(self):
-        path, name = os.path.split(self.linJPGFile.text())
-        name, _ = os.path.splitext(name)
-
-        if self.cmbJPGOut.currentText() == '不解码':
-            img = open(self.linJPGFile.text(), 'rb').read()
-
-            txt = f'const unsigned char jpeg_{name}[{len(img)}] = {{\n'
-            for i, x in enumerate(img):
-                txt += f'0x{x:02X}, '
-                if i%16 == 15: txt += '\n'
-            txt += '};\n'
-
-        else:
-            ''' 模仿 PIL 的输出格式
-            from PIL import Image
-            imd = Image.open(self.linJPGFile.text()).getdata()
-            '''
-            img = QtGui.QImage(self.linJPGFile.text())
-
-            imd = []
-            for y in range(img.height()):
-                for x in range(img.width()):
-                    pix = img.pixel(x, y)
-                    imd.append(((pix >> 16) & 0xFF, (pix >> 8) & 0xFF, pix & 0xFF))
-
-            if self.cmbJPGOut.currentText() == 'XRGB888':
-                dat = [(p[0] << 16) | (p[1] << 8) | p[2] for p in imd]
-
-            elif self.cmbJPGOut.currentText() == 'XBGR888':
-                dat = [(p[2] << 16) | (p[1] << 8) | p[0] for p in imd]
-
-            if self.cmbJPGOut.currentText() == 'RGB565':
-                dat = [((p[0] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[2] >> 3) for p in imd]
-
-            elif self.cmbJPGOut.currentText() == 'BGR565':
-                dat = [((p[2] >> 3) << 11) | ((p[1] >> 2) << 5) | (p[0] >> 3) for p in imd]
-
-            if self.cmbJPGOut.currentText() in ('RGB565', 'BGR565'):
-                txt = f'const unsigned short jpeg_{name}[{len(imd)}] = {{\n'
-                for i, x in enumerate(dat):
-                    txt += f'0x{x:04X}, '
-                    if i%16 == 15: txt += '\n'
-                txt += '};\n'
-
-            elif self.cmbJPGOut.currentText() in ('XRGB888', 'XBGR888'):
-                txt = f'const unsigned int jpeg_{name}[{len(imd)}] = {{\n'
-                for i, x in enumerate(dat):
-                    txt += f'0x{x:08X}, '
-                    if i%16 == 15: txt += '\n'
-                txt += '};\n'
-
-        self.txtJPGShow.clear()
-        self.txtJPGShow.append(txt)
-        self.txtJPGShow.moveCursor(QtGui.QTextCursor.Start)
 
     def closeEvent(self, evt):
         self.conf.set('global', 'mcu', self.cmbMCU.currentText())
         self.conf.set('mcu.freq', self.cmbMCU.currentText(), self.linFreq.text())
         self.conf.set('CAN', 'Baudrate', self.linCANBaud.text())
         self.conf.set('CAN', 'Sample Point', self.linCANSamp.text())
-        self.conf.set('JPEG', 'Path', self.linJPGFile.text())
         self.conf.write(open('setting.ini', 'w', encoding='utf-8'))
 
 

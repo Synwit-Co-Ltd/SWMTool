@@ -1,13 +1,283 @@
 #! python3
 import os
 import re
+import math
+import zipfile
+import xml.etree.ElementTree as ET
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-try:
-    import pypdfium2 as pdfium            # 用于显示 package/package/ 下的封装图形
-except ImportError:
-    pdfium = None
+
+VS_NS = '{http://schemas.microsoft.com/office/visio/2012/main}'
+DPI = 96.0                                # 场景坐标每英寸像素数，只决定文字/线宽的基准，整体仍会适配视图
+
+# 文档样式表（TextStyle“正常”等）里与显示相关的默认值：形状未给出时按此渲染
+DEF_LINE_WEIGHT = 0.01041666666666667     # 英寸（0.75 pt）
+DEF_FONT_SIZE = 0.1666666666666667        # 英寸（12 pt）
+DEF_TEXT_MARGIN = 0.05555555555555555     # 文字块四周的文字边距（英寸）
+
+
+class VsdxShape:
+    """Visio 页面中的一个形状：单元值、各 Section 的行、文字、子形状。
+
+    只取 Cell 的 V 值（公式计算结果），坐标一律为英寸；几何行的 X/Y 在
+    Rel* 行里是宽高的比例，其余是形状局部坐标（y 向上）。
+    """
+
+    def __init__(self, el):
+        self.cells = {c.get('N'): c.get('V') for c in el.findall(VS_NS + 'Cell')}
+        self.sections = []                                    # [{'name', 'cells', 'rows': [(行类型, {单元: 值}), ...]}, ...]
+        for sec in el.findall(VS_NS + 'Section'):
+            self.sections.append({
+                'name': sec.get('N'),
+                'cells': {c.get('N'): c.get('V') for c in sec.findall(VS_NS + 'Cell')},
+                'rows': [(row.get('T'), {c.get('N'): c.get('V') for c in row.findall(VS_NS + 'Cell')})
+                         for row in sec.findall(VS_NS + 'Row')]})
+        text = el.find(VS_NS + 'Text')
+        self.text = ''.join(text.itertext()).strip() if text is not None else ''
+        self.children = [VsdxShape(s) for s in el.findall(VS_NS + 'Shapes/' + VS_NS + 'Shape')]
+
+    def cell(self, name, default=None):
+        return self.cells.get(name, default)
+
+    def rowCell(self, section, cell, default=None):
+        """Section 行里的单元值（如 Character 的 Size、Paragraph 的 HorzAlign）。"""
+        for sec in self.sections:
+            if sec['name'] == section:
+                for _, cells in sec['rows']:
+                    if cell in cells:
+                        return cells[cell]
+        return default
+
+
+class VsdxPage:
+    """vsdx 封装图形的第一页。Visio 坐标系：英寸、原点在页面左下、y 轴向上。"""
+
+    def __init__(self, path):
+        zipf = zipfile.ZipFile(path)
+
+        # 第一页的内容文件记录在 pages.xml 的关系里（Target 形如 page1.xml）
+        rels = ET.fromstring(zipf.read('visio/pages/_rels/pages.xml.rels'))
+        targets = [rel.get('Target') for rel in rels if rel.get('Target')]
+        pagename = targets[0] if targets else 'page1.xml'
+
+        self.height = 11.0                                     # 页面高度，页面坐标换算场景坐标用
+        for c in ET.fromstring(zipf.read('visio/pages/pages.xml')).iter(VS_NS + 'Cell'):
+            if c.get('N') == 'PageHeight':
+                self.height = float(c.get('V'))
+
+        shapes = ET.fromstring(zipf.read('visio/pages/' + pagename)).find(VS_NS + 'Shapes')
+        self.shapes = [VsdxShape(s) for s in shapes] if shapes is not None else []
+
+
+def shapeXform(shape):
+    """形状自身坐标 → 父坐标的变换（英寸，y 向上）：先翻转、绕 LocPin 旋转、再平移到 Pin。"""
+    w = float(shape.cell('Width', 0) or 0)
+    h = float(shape.cell('Height', 0) or 0)
+    t = QtGui.QTransform()
+    t.translate(float(shape.cell('PinX', 0) or 0), float(shape.cell('PinY', 0) or 0))
+    t.rotateRadians(float(shape.cell('Angle', 0) or 0))
+    t.translate(-float(shape.cell('LocPinX', w / 2) or 0), -float(shape.cell('LocPinY', h / 2) or 0))
+    if shape.cell('FlipX', '0') != '0':
+        t.translate(w, 0)
+        t.scale(-1, 1)
+    if shape.cell('FlipY', '0') != '0':
+        t.translate(0, h)
+        t.scale(1, -1)
+    return t
+
+
+def geometryPaths(shape):
+    """形状的各 Geometry 段 → [(QPainterPath, 段单元), ...]，路径为形状局部坐标（英寸）。
+
+    只处理 MoveTo/LineTo/RelMoveTo/RelLineTo/Ellipse（现有图形只用到这些），
+    遇到其它行类型就停止该段（保留已画出的部分）。
+    """
+    w = float(shape.cell('Width', 0) or 0)
+    h = float(shape.cell('Height', 0) or 0)
+    paths = []
+    for sec in shape.sections:
+        if sec['name'] != 'Geometry':
+            continue
+        path = QtGui.QPainterPath()
+        for rowtype, cells in sec['rows']:
+            try:
+                if rowtype in ('MoveTo', 'RelMoveTo'):
+                    x, y = float(cells['X']), float(cells['Y'])
+                    if rowtype.startswith('Rel'):
+                        x, y = x * w, y * h
+                    path.moveTo(x, y)
+                elif rowtype in ('LineTo', 'RelLineTo'):
+                    x, y = float(cells['X']), float(cells['Y'])
+                    if rowtype.startswith('Rel'):
+                        x, y = x * w, y * h
+                    path.lineTo(x, y)
+                elif rowtype == 'Ellipse':
+                    cx, cy = float(cells['X']), float(cells['Y'])
+                    rx = abs(float(cells['A']) - cx)
+                    ry = abs(float(cells['D']) - cy)
+                    path.addEllipse(QtCore.QPointF(cx, cy), rx, ry)
+                else:
+                    break
+            except (KeyError, ValueError):
+                break
+        if path.elementCount():
+            paths.append((path, sec['cells']))
+    return paths
+
+
+def parseColor(v):
+    """LineColor/FillForegnd 的值（#rrggbb 或调色板号，0=黑）→ QColor。"""
+    if v and v.startswith('#'):
+        return QtGui.QColor(v)
+    return QtGui.QColor('black' if v in (None, '0') else v)
+
+
+def drawVsdx(scene, page, packPins, packSel):
+    """把 vsdx 的形状画进场景：几何画成矢量路径，编号等文字按 Visio 的文字块规则摆放。
+
+    引脚文字（txt 记录的引脚名 / 选中的功能名，红色）由这里计算位置：编号框分布在芯片
+    四周，按编号框中心相对全部编号框中心的方位判断所在的边，文字排在编号外侧——左右
+    边水平书写、顶/底边竖排（自下而上读），起点贴着编号框、向外延伸。编号框、编号、
+    文字的图形项都带上引脚号（setData(0)），供点击弹出功能列表。
+
+    返回（适配包围盒, 芯片中心）：包围盒中引脚文字按当前显示的文字（选中功能后即
+    功能文字）计算，文字变长时包围盒随之变大，drawPack 便会缩小缩放让文字完全显示；
+    芯片中心为全部编号框的中心，与引脚文字无关，用作画布的居中锚点。
+    """
+    sceneT = QtGui.QTransform()                               # 页面坐标（英寸，y 向上）→ 场景坐标（y 向下）
+    sceneT.translate(0, page.height * DPI)
+    sceneT.scale(DPI, -DPI)
+
+    def addText(shape, xform, baseAngle, text, color, num):
+        c = shape.cells
+        w = float(c.get('Width', 0) or 0)
+        h = float(c.get('Height', 0) or 0)
+        # 文字块（缺省为整个形状框）及其中的文字边距
+        bw_ = float(c.get('TxtWidth', w) or 0)
+        bh_ = float(c.get('TxtHeight', h) or 0)
+        tpx = float(c.get('TxtPinX', w / 2) or 0)
+        tpy = float(c.get('TxtPinY', h / 2) or 0)
+        tlx = float(c.get('TxtLocPinX', bw_ / 2) or 0)
+        tly = float(c.get('TxtLocPinY', bh_ / 2) or 0)
+        bx, by = tpx - tlx, tpy - tly                         # 文字块左下角（形状坐标）
+        m = DEF_TEXT_MARGIN
+        bw, bh = bw_ - 2 * m, bh_ - 2 * m                     # 扣掉边距后的文字区域
+
+        fnt = QtGui.QFont('Segoe UI')
+        fnt.setPixelSize(max(4, round(float(shape.rowCell('Character', 'Size', DEF_FONT_SIZE) or 0) * DPI)))
+        fm = QtGui.QFontMetrics(fnt)
+        lines = text.split('\n')
+        tw = max(fm.horizontalAdvance(line) for line in lines) / DPI       # 换回英寸参与摆放计算
+        th = fm.height() * len(lines) / DPI
+
+        ha = int(float(shape.rowCell('Paragraph', 'HorzAlign', '1') or 0))    # 0左 1中 2右
+        va = int(float(c.get('VerticalAlign', '1') or 0))                     # 0上 1中 2下（y 向上）
+        ox = (0.0, (bw - tw) / 2, bw - tw)[ha]
+        oy = (bh - th, (bh - th) / 2, 0.0)[va]
+        # 文字左上角（形状坐标），先绕 TxtPin 旋转（TxtAngle 及竖排文字的 -90°），再随形状变换到页面
+        lx, ly = bx + m + ox, by + m + oy + th
+        angT = float(c.get('TxtAngle', 0) or 0)
+        # 竖排文字（TextDirection=1）的文字块相对形状再转 -90°：Visio 实际渲染的朝向即
+        # Angle + TxtAngle - 90°（与 Visio 导出 PDF 中各引脚的字符排布逐项核对得到）
+        if c.get('TextDirection', '0') == '1':
+            angT -= math.pi / 2
+        ax = tpx + (lx - tpx) * math.cos(angT) - (ly - tpy) * math.sin(angT)
+        ay = tpy + (lx - tpx) * math.sin(angT) + (ly - tpy) * math.cos(angT)
+        pos = xform.map(QtCore.QPointF(ax, ay))
+        theta = baseAngle + angT                              # 文字最终旋转角（弧度，页面坐标逆时针）
+
+        item = QtWidgets.QGraphicsSimpleTextItem(text)
+        item.setFont(fnt)
+        item.setBrush(QtGui.QBrush(color))
+        item.setPos(pos.x() * DPI, (page.height - pos.y()) * DPI)
+        item.setRotation(-math.degrees(theta))                # Qt 的旋转以顺时针为正
+        if num is not None:
+            item.setData(0, num)                              # 点击文字弹出该引脚的功能列表
+        item.setZValue(1)
+        scene.addItem(item)
+
+    fit = [QtCore.QRectF()]                                    # 适配包围盒（用列表以便闭包内修改）
+
+    def walk(shape, xform, baseAngle):
+        xf = shapeXform(shape) * xform                       # Qt 的 a*b 是先 a 后 b：子变换在前、父变换在后
+        angle = baseAngle + float(shape.cell('Angle', 0) or 0)
+
+        num = int(shape.text) if shape.text.isdigit() else None
+        for path, seccells in geometryPaths(shape):
+            pen = brush = None
+            if seccells.get('NoLine') != '1' and shape.cell('LinePattern', '1') != '0':
+                pen = QtGui.QPen(parseColor(shape.cell('LineColor')),
+                                 max(1.0, float(shape.cell('LineWeight', DEF_LINE_WEIGHT) or 0) * DPI))
+            if seccells.get('NoFill') != '1' and shape.cell('FillPattern', '1') != '0':
+                brush = QtGui.QBrush(parseColor(shape.cell('FillForegnd')))
+            if pen is not None or brush is not None:
+                item = scene.addPath(sceneT.map(xf.map(path)),
+                                     pen or QtGui.QPen(QtCore.Qt.NoPen),
+                                     brush or QtGui.QBrush(QtCore.Qt.NoBrush))
+                if num is not None:
+                    item.setData(0, num)                      # 引脚编号的小框也可点击
+                item.setZValue(0)
+                fit[0] = fit[0].united(item.boundingRect())
+
+        if shape.text and not (shape.text.startswith('Pin_') and shape.text[4:].isdigit()):
+            addText(shape, xf, angle, shape.text, QtCore.Qt.black, num)
+
+        if num is not None:                                   # 编号框在页面里的位置，供计算引脚文字位置
+            w = float(shape.cell('Width', 0) or 0)
+            h = float(shape.cell('Height', 0) or 0)
+            xs, ys = [], []
+            for x, y in ((0, 0), (w, 0), (0, h), (w, h)):
+                p = xf.map(QtCore.QPointF(x, y))
+                xs.append(p.x() * DPI)
+                ys.append((page.height - p.y()) * DPI)
+            digits.append((num, min(xs), min(ys), max(xs), max(ys), shape))
+            fit[0] = fit[0].united(QtCore.QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)))
+
+        for child in shape.children:
+            walk(child, xf, angle)
+
+    digits = []                                               # [(编号, 左, 上, 右, 下, 形状), ...]（场景坐标）
+    for shape in page.shapes:
+        walk(shape, QtGui.QTransform(), 0.0)
+
+    GAP = 6.0                                                 # 编号框与文字的间距（像素）
+    cx = sum(d[1] + d[3] for d in digits) / (2 * len(digits)) if digits else 0
+    cy = sum(d[2] + d[4] for d in digits) / (2 * len(digits)) if digits else 0
+    for num, x0, y0, x1, y1, shape in digits:
+        name = packPins.get(num)
+        if not name:
+            continue
+        text = packSel.get(num) or name
+        fnt = QtGui.QFont('Segoe UI')
+        fnt.setPixelSize(max(4, round(float(shape.rowCell('Character', 'Size', DEF_FONT_SIZE) or 0) * DPI)))
+        fm = QtGui.QFontMetrics(fnt)
+        tw, th = fm.horizontalAdvance(text), fm.height()
+
+        item = QtWidgets.QGraphicsSimpleTextItem(text)
+        item.setFont(fnt)
+        item.setBrush(QtGui.QBrush(QtCore.Qt.red if num in packSel else QtCore.Qt.black))
+        item.setData(0, num)                                  # 点文字弹出该引脚的功能列表
+        item.setZValue(1)
+        scene.addItem(item)
+
+        if abs((x0 + x1) / 2 - cx) > abs((y0 + y1) / 2 - cy):  # 离中心横向更远：左右边
+            if (x0 + x1) / 2 < cx:                            # 左边：右端贴编号、垂直居中
+                item.setPos(x0 - GAP - tw, (y0 + y1) / 2 - th / 2)
+                fit[0] = fit[0].united(QtCore.QRectF(x0 - GAP - tw, (y0 + y1) / 2 - th / 2, tw, th))
+            else:                                             # 右边：左端贴编号、垂直居中
+                item.setPos(x1 + GAP, (y0 + y1) / 2 - th / 2)
+                fit[0] = fit[0].united(QtCore.QRectF(x1 + GAP, (y0 + y1) / 2 - th / 2, tw, th))
+        else:                                                 # 顶/底边：竖排，自下而上读
+            item.setRotation(-90)
+            if (y0 + y1) / 2 < cy:                            # 顶边：末端贴编号、向上延伸
+                item.setPos((x0 + x1) / 2 - th / 2, y0 - GAP)
+                fit[0] = fit[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y0 - GAP - tw, th, tw))
+            else:                                             # 底边：起端贴编号、向下延伸
+                item.setPos((x0 + x1) / 2 - th / 2, y1 + GAP + tw)
+                fit[0] = fit[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y1 + GAP, th, tw))
+
+    return fit[0], QtCore.QPointF(cx, cy) if digits else fit[0].center()
 
 
 class PackView(QtWidgets.QGraphicsView):
@@ -18,7 +288,7 @@ class PackView(QtWidgets.QGraphicsView):
         self.owner = owner
         self.setScene(QtWidgets.QGraphicsScene(self))
         self.setBackgroundBrush(QtCore.Qt.white)
-        self.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)     # 对应画布 anchor='nw'
+        self.setAlignment(QtCore.Qt.AlignCenter)             # 图形比视图小时居中显示
         self.setRenderHint(QtGui.QPainter.Antialiasing)
         self.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
         self._lastSize = None
@@ -46,11 +316,10 @@ class PinConfigPage(QtCore.QObject):
 
         self.win = win
 
-        self.packDoc = None                                 # 当前封装的图形（PDF 文档）
+        self.packPage = None                                # 当前封装的图形（vsdx 第一页）
         self.packZoom = 1.0                                 # 封装图形的缩放倍数
         self.packName = ''                                  # 从 txt 第一行读出的封装名称
         self.packPins = {}                                  # txt 记录的 {引脚号: 引脚文字}
-        self.packNums = []                                  # 图形中引脚编号的位置 [(编号, l, b, r, t), ...]
         self.portFuncs = {}                                 # <MCU>_port.h 解析出的 {引脚名: [功能, ...]}
         self.packSel = {}                                   # {引脚号: 选中的功能文字}（选中后红色显示）
 
@@ -72,11 +341,10 @@ class PinConfigPage(QtCore.QObject):
     def onPackChanged(self, pack):
         mcu = self.win.cmbMCU.currentText()
 
-        self.packDoc = None
+        self.packPage = None
         self.packZoom = 1.0
         self.packName = ''
         self.packPins = {}
-        self.packNums = []
         self.packSel = {}
         if pack:
             try:
@@ -89,12 +357,11 @@ class PinConfigPage(QtCore.QObject):
             except OSError:
                 pass
 
-            if self.packName and pdfium:
+            if self.packName:
                 try:
-                    self.packDoc = pdfium.PdfDocument(os.path.join('package', 'package', self.packName + '.pdf'))
-                    self.packNums = self.extractPinNums(self.packDoc, max(self.packPins, default=0))
+                    self.packPage = VsdxPage(os.path.join('package', 'package', self.packName + '.vsdx'))
                 except Exception:
-                    self.packDoc = None
+                    self.packPage = None
 
         self.drawPack()
 
@@ -103,12 +370,15 @@ class PinConfigPage(QtCore.QObject):
             QtCore.QTimer.singleShot(0, self.drawPack)     # 等页面显示、视图取得实际尺寸后再绘制
 
     def onPackWheel(self, event):
-        """Ctrl+滚轮：缩放封装图形。返回是否已处理。"""
-        if event.modifiers() & QtCore.Qt.ControlModifier and self.packDoc is not None:
+        """Ctrl+滚轮：缩放封装图形（以视口中心为不动点）。返回是否已处理。"""
+        if event.modifiers() & QtCore.Qt.ControlModifier and self.packPage is not None:
             delta = event.angleDelta().y()
             if delta:
-                self.packZoom = min(6, max(0.3, self.packZoom * (1.1 if delta > 0 else 1/1.1)))
-                self.drawPack()
+                newZoom = min(6, max(0.3, self.packZoom * (1.1 if delta > 0 else 1 / 1.1)))
+                anchor = self.packView.mapToScene(self.packView.viewport().rect().center())
+                self.packView.scale(newZoom / self.packZoom, newZoom / self.packZoom)
+                self.packView.centerOn(anchor)
+                self.packZoom = newZoom
             return True
         return False
 
@@ -123,7 +393,7 @@ class PinConfigPage(QtCore.QObject):
         return False
 
     def drawPack(self):
-        """在 packView 中显示当前封装的图形（package/package/<封装名>.pdf）。"""
+        """在 packView 中显示当前封装的图形（package/package/<封装名>.vsdx）。"""
         sc = self.packView.scene()
         sc.clear()
 
@@ -131,113 +401,35 @@ class PinConfigPage(QtCore.QObject):
         if w < 10 or h < 10:
             return                                 # 视图尚未显示，等页面切换或尺寸变化时再画
 
-        if self.packDoc is not None:
-            self.drawPackPdf(w, h)
+        if self.packPage is not None:
+            fit, center = drawVsdx(sc, self.packPage, self.packPins, self.packSel)
+            # 场景矩形、缩放都以芯片中心对称、视图以芯片中心居中：引脚文字在某一边
+            # 变长但窗口还放得下时，缩放比例不变、图形位置不动；长到放不下时按对称
+            # 包围盒缩小缩放（芯片中心不动），让文字完全显示
+            halfW = max(center.x() - fit.left(), fit.right() - center.x())
+            halfH = max(center.y() - fit.top(), fit.bottom() - center.y())
+            sc.setSceneRect(QtCore.QRectF(center.x() - halfW, center.y() - halfH,
+                                          2 * halfW, 2 * halfH).adjusted(-8, -8, 8, 8))
+            view = self.packView
+            view.resetTransform()
+            vw, vh = view.viewport().width(), view.viewport().height()
+            if vw > 0 and vh > 0 and halfW > 0 and halfH > 0:
+                s = min((vw - 16) / (2 * halfW), (vh - 16) / (2 * halfH)) * self.packZoom
+                view.setTransform(QtGui.QTransform().scale(s, s))
+                view.centerOn(center)
             return
 
         if not self.win.cmbPack.currentText():
             text = f'package/{self.win.cmbMCU.currentText()}/ 目录下没有封装数据文件'
         elif not self.packName:
             text = f'无法读取 {self.win.cmbPack.currentText()}.txt 第一行的封装名称'
-        elif pdfium is None:
-            text = '显示封装图形需要 pypdfium2 库：pip install pypdfium2'
         else:
-            text = f'缺少 package/package/{self.packName}.pdf'
+            text = f'缺少 package/package/{self.packName}.vsdx'
 
         sc.setSceneRect(0, 0, w, h)
         item = sc.addSimpleText(text)
         item.setBrush(QtGui.QBrush(QtCore.Qt.gray))
         item.setPos((w - item.boundingRect().width()) / 2, (h - item.boundingRect().height()) / 2)
-
-    @staticmethod
-    def pinSide(num, npins):
-        """引脚所在的边（QFP 编号约定：左→下→右→上，各 P 个）：L/B/R/T。
-
-        引脚数不能被 4 整除时该约定不成立，返回 None 由调用方按位置判断。
-        """
-        if npins % 4:
-            return None
-        P = npins // 4
-        return 'L' if num <= P else 'B' if num <= 2*P else 'R' if num <= 3*P else 'T'
-
-    @staticmethod
-    def extractPinNums(doc, npins):
-        """提取封装图形中引脚编号及其位置，返回 [(编号, l, b, r, t), ...]。
-
-        左右边编号水平书写；顶/底边编号旋转 90°（自下而上读）。
-        有的图形不标出某一边的编号，按四边对称关系镜像重建补齐。
-        """
-        tp = doc[0].get_textpage()
-        chars = []
-        for i in range(tp.count_chars()):
-            ch = tp.get_text_range(i, 1)
-            l, b, r, t = tp.get_charbox(i)
-            if ch.isdigit() and r > l and t > b and max(r-l, t-b) < 3.0:    # 滤掉型号标签等大字
-                chars.append([ch, l, b, r, t])
-
-        toks = []                                          # 水平相邻（同基线）或垂直相邻（同列）的数字聚成一个编号
-        def adjacent(p, c):                                # 与迭代顺序无关，前后相邻都算
-            if abs(c[2] - p[2]) < 0.5:
-                return -1 <= c[1] - p[3] <= 3 or -1 <= p[1] - c[3] <= 3
-            if abs(c[1] + c[3] - p[1] - p[3]) < 1.4:
-                return -1 <= c[2] - p[4] <= 3 or -1 <= p[2] - c[4] <= 3
-            return False
-
-        for c in sorted(chars, key=lambda c: (c[1], c[2])):
-            for tok in toks:
-                if adjacent(tok[-1], c):
-                    tok.append(c)
-                    break
-            else:
-                toks.append([c])
-
-        found = {}
-        for tok in toks:
-            sameRow = max(c[2] for c in tok) - min(c[2] for c in tok) < 0.5
-            digits = sorted(tok, key=lambda c: c[1] if sameRow else c[2])  # 竖排数字十位在下、自下而上读
-            num = int(''.join(c[0] for c in digits))
-            if 1 <= num <= npins and num not in found:
-                found[num] = [min(c[1] for c in tok), min(c[2] for c in tok),
-                              max(c[3] for c in tok), max(c[4] for c in tok)]
-
-        def interp(num):                                   # 兜底：在前后已知引脚之间线性插值
-            lo, hi = num - 1, num + 1
-            while lo >= 1 and lo not in found:
-                lo -= 1
-            while hi <= npins and hi not in found:
-                hi += 1
-            if lo < 1 or hi > npins:
-                return None
-            f = (num - lo) / (hi - lo)
-            return [found[lo][k] + (found[hi][k] - found[lo][k]) * f for k in range(4)]
-
-        missing = [n for n in range(1, npins + 1) if n not in found]
-        if missing and npins % 4 == 0:
-            # 同一边上的编号共线、四边等间距，故缺号的引脚可用“隔着芯片中心对称的
-            # 那个引脚”镜像得出（直接按相邻引脚连线插值会让整排编号偏斜、过长）
-            P = npins // 4
-            cx = [ (found[n][0] + found[n][2]) / 2 for n in found
-                   if PinConfigPage.pinSide(n, npins) in ('T', 'B') ]
-            cy = [ (found[n][1] + found[n][3]) / 2 for n in found
-                   if PinConfigPage.pinSide(n, npins) in ('L', 'R') ]
-            if cx and cy:
-                cx, cy = sum(cx)/len(cx), sum(cy)/len(cy)
-                for num in list(missing):
-                    side = PinConfigPage.pinSide(num, npins)
-                    mir = 3*P + 1 - num if side in ('L', 'R') else 5*P + 1 - num
-                    if mir not in found:
-                        continue
-                    l, b, r, t = found[mir]
-                    found[num] = [2*cx - r, b, 2*cx - l, t] if side in ('L', 'R') \
-                            else [l, 2*cy - t, r, 2*cy - b]
-
-        for num in missing:                                # 镜像补不出的再用插值兜底
-            if num not in found:
-                box = interp(num)
-                if box:
-                    found[num] = box
-
-        return [(num, *found[num]) for num in sorted(found)]
 
     @staticmethod
     def loadPortFuncs(path):
@@ -255,134 +447,6 @@ class PinConfigPage(QtCore.QObject):
         except OSError:
             pass
         return funcs
-
-    def packPinSide(self, num, box, npins, cx, cy):
-        """引脚所在的边（L/T/R/B）：优先按编号约定判断（角上的引脚按坐标判会判错边），
-        引脚数不符合该约定时退回看它离芯片中心的横竖距离。"""
-        side = self.pinSide(num, npins)
-        if side is not None:
-            return side
-        l, b, r, t = box
-        if abs((l + r) / 2 - cx) > abs((b + t) / 2 - cy):
-            return 'L' if (l + r) / 2 < cx else 'R'
-        return 'B' if (b + t) / 2 < cy else 'T'
-
-    def drawPackPdf(self, w, h):
-        """把封装图形 PDF 渲染成位图显示，裁掉页面白边后适配视图，Ctrl+滚轮缩放。
-
-        引脚文字一律排在图形外侧，为此在图形四周留出白边专门放文字（文字都在图内，
-        滚动、缩放时不会被裁掉），白边宽度也计入适配缩放的计算。
-        """
-        from PIL import Image, ImageChops
-
-        sc = self.packView.scene()
-
-        page = self.packDoc[0]
-        ph = page.get_size()[1]                    # 页面高度（点）
-        probe = page.render(scale=1).to_pil().convert('RGB')
-        bbox = ImageChops.difference(probe, Image.new('RGB', probe.size, 'white')).getbbox()
-        if not bbox:
-            bbox = (0, 0, *probe.size)             # 整页都没有内容时按整页算
-        cw, ch = bbox[2]-bbox[0], bbox[3]-bbox[1]  # 实际图形的尺寸（单位：点）
-
-        FONT_PT, GAP_PT = 2.5, 6.0                 # 引脚文字字号系数、文字与图形的间距（点）
-        npins = max(self.packPins) if self.packPins else 0
-        cx = sum(n[1] + n[3] for n in self.packNums) / (2 * len(self.packNums)) if self.packNums else 0
-        cy = sum(n[2] + n[4] for n in self.packNums) / (2 * len(self.packNums)) if self.packNums else 0
-        # 每个引脚及其文字排在图形的哪条边（各边文字的多少、长短都不一样）；
-        # 留白、缩放只按 txt 中的引脚名计算，选中功能后文字变长也不挪动图形
-        pinSides = [(num, box, self.packPinSide(num, box, npins, cx, cy), self.packPins.get(num))
-                    for num, *box in self.packNums if self.packPins.get(num)]
-
-        EXTRA_TB = 40                             # 视图上、下再各自多留的空白（像素）
-
-        def fitScale(padL, padR, padT, padB):      # 图形连同四周留白一起放进视图所需的比例
-            return min((w - 20 - padL - padR)/cw,
-                       (h - 20 - 2*EXTRA_TB - padT - padB)/ch) * self.packZoom
-
-        # 各边要留多宽：从该边最“靠里”的那个编号量到图形边界，再加上文字本身的尺寸。
-        # 字号取决于缩放比例、留白又反过来影响缩放，故先估一次再迭代校正
-        scale, padL, padR, padT, padB = fitScale(0, 0, 0, 0), 0, 0, 0, 0
-        for _ in range(3):
-            fnt = QtGui.QFont('Segoe UI')
-            fnt.setPointSize(max(5, round(FONT_PT * scale)))     # 点字号，与 Tkinter 版一致
-            fm = QtGui.QFontMetrics(fnt)
-            gap = GAP_PT * scale
-            need = {'L': 0, 'R': 0, 'T': 0, 'B': 0}
-            for num, (l, b, r, t), side, text in pinSides:
-                if side == 'L':
-                    room = fm.horizontalAdvance(text) + gap - (l - bbox[0]) * scale     # 文字排到图形左界还要多少
-                elif side == 'R':
-                    room = fm.horizontalAdvance(text) + gap - (bbox[2] - r) * scale
-                elif side == 'T':
-                    room = fm.horizontalAdvance(text) + gap - ((ph - bbox[1]) - t) * scale
-                else:
-                    room = fm.horizontalAdvance(text) + gap - (b - (ph - bbox[3])) * scale
-                need[side] = max(need[side], room)
-            padL, padR = max(0, need['L']), max(0, need['R'])
-            padT, padB = max(0, need['T']), max(0, need['B'])
-            scale = fitScale(padL, padR, padT, padB)
-
-        img = page.render(scale=scale).to_pil().convert('RGB').crop([c*scale for c in bbox])
-        # 末次迭代后字号可能再变一点，留 2 像素余量，避免文字压到图边
-        padL, padR, padT, padB = round(padL)+2, round(padR)+2, round(padT)+2, round(padB)+2
-        if padL or padR or padT or padB:           # 四周补白，给外侧的引脚文字留位置
-            padded = Image.new('RGB', (img.width + padL + padR, img.height + padT + padB), 'white')
-            padded.paste(img, (padL, padT))
-            img = padded
-
-        qimg = QtGui.QImage(img.tobytes('raw', 'RGB'), img.width, img.height,
-                            img.width * 3, QtGui.QImage.Format_RGB888).copy()
-        pixItem = sc.addPixmap(QtGui.QPixmap.fromImage(qimg))
-
-        ox = (w - img.width)/2 if img.width < w else 10
-        oy = (h - img.height)/2 if img.height < h else 10
-        pixItem.setPos(ox, oy)
-        sc.setSceneRect(0, 0, max(w, ox+img.width), max(h, oy+img.height))
-
-        # 在引脚编号旁标注 txt 中记录的引脚文字：左右边水平排在编号外侧，
-        # 顶/底边整体逆时针旋转 90° 竖排在编号外侧（自下而上读，相邻引脚的文字才不会互相重叠）
-        if pinSides:
-            def toimg(x, y):
-                """文本层坐标（y 自页面底边向上）换算为图内像素坐标。"""
-                return ox + padL + (x - bbox[0]) * scale, oy + padT + (ph - y - bbox[1]) * scale
-
-            fnt = QtGui.QFont('Segoe UI')
-            fnt.setPointSize(max(5, round(FONT_PT * scale)))     # 点字号，与 Tkinter 版一致
-            fm = QtGui.QFontMetrics(fnt)
-            gap = GAP_PT * scale
-            for num, (l, b, r, t), side, name in pinSides:
-                x0, y0 = toimg(l, t)               # 编号框左上
-                x1, y1 = toimg(r, b)               # 编号框右下
-
-                hit = QtWidgets.QGraphicsRectItem(x0 - 2, y0 - 2, (x1 - x0) + 4, (y1 - y0) + 4)
-                hit.setPen(QtGui.QPen(QtCore.Qt.NoPen))
-                hit.setBrush(QtGui.QBrush(QtCore.Qt.NoBrush))
-                hit.setData(0, num)                # 引脚编号的点击热区（不可见）
-                hit.setZValue(1)
-                sc.addItem(hit)
-
-                text = self.packSel.get(num, name)     # 选中功能后显示功能文字（红色）
-                item = QtWidgets.QGraphicsSimpleTextItem(text)
-                item.setFont(fnt)
-                item.setBrush(QtGui.QBrush(QtCore.Qt.red if num in self.packSel else QtCore.Qt.black))
-                item.setData(0, num)                   # 点文字同样弹出功能列表
-                item.setZValue(1)
-                sc.addItem(item)
-
-                tw, th = fm.horizontalAdvance(text), fm.height()
-                if side == 'L':                        # 右端贴编号、垂直居中
-                    item.setPos(x0 - gap - tw, (y0 + y1) / 2 - th / 2)
-                elif side == 'R':                      # 左端贴编号、垂直居中
-                    item.setPos(x1 + gap, (y0 + y1) / 2 - th / 2)
-                elif side == 'B':
-                    # 旋转 -90°（视图坐标下逆时针）后自下而上读：末端贴编号、向下延伸
-                    item.setRotation(-90)
-                    item.setPos((x0 + x1) / 2 - th / 2, y1 + gap + tw)
-                else:
-                    # 起端贴编号、向上延伸
-                    item.setRotation(-90)
-                    item.setPos((x0 + x1) / 2 - th / 2, y0 - gap)
 
     def popupPinFuncs(self, num, globalPos):
         """在点击处弹出引脚的功能列表（来自 <MCU>_port.h），选中后引脚文字换成该功能。"""

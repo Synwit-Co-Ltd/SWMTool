@@ -16,6 +16,8 @@ DEF_LINE_WEIGHT = 0.01041666666666667     # 英寸（0.75 pt）
 DEF_FONT_SIZE = 0.1666666666666667        # 英寸（12 pt）
 DEF_TEXT_MARGIN = 0.05555555555555555     # 文字块四周的文字边距（英寸）
 
+PACK_PAD = 8.0                            # 场景矩形相对图形包围盒的外扩量（场景单位）
+
 
 class VsdxShape:
     """Visio 页面中的一个形状：单元值、各 Section 的行、文字、子形状。
@@ -408,13 +410,16 @@ class PinConfigPage(QtCore.QObject):
             # 包围盒缩小缩放（芯片中心不动），让文字完全显示
             halfW = max(center.x() - fit.left(), fit.right() - center.x())
             halfH = max(center.y() - fit.top(), fit.bottom() - center.y())
-            sc.setSceneRect(QtCore.QRectF(center.x() - halfW, center.y() - halfH,
-                                          2 * halfW, 2 * halfH).adjusted(-8, -8, 8, 8))
+            sc.setSceneRect(QtCore.QRectF(center.x() - halfW, center.y() - halfH, 2 * halfW, 2 * halfH)
+                            .adjusted(-PACK_PAD, -PACK_PAD, PACK_PAD, PACK_PAD))
             view = self.packView
             view.resetTransform()
             vw, vh = view.viewport().width(), view.viewport().height()
             if vw > 0 and vh > 0 and halfW > 0 and halfH > 0:
-                s = min((vw - 16) / (2 * halfW), (vh - 16) / (2 * halfH)) * self.packZoom
+                # 缩放要按含留白的场景尺寸算：留白若不计入，s>1 时会被放大成 PACK_PAD*s
+                # 像素，整块场景反而比视口高/宽，QGraphicsView 就冒出滚动条（窗口越大越明显）
+                boxW, boxH = 2 * (halfW + PACK_PAD), 2 * (halfH + PACK_PAD)
+                s = min((vw - 2) / boxW, (vh - 2) / boxH) * self.packZoom   # 留 2px 余量，避免正好相等
                 view.setTransform(QtGui.QTransform().scale(s, s))
                 view.centerOn(center)
             return
@@ -426,6 +431,7 @@ class PinConfigPage(QtCore.QObject):
         else:
             text = f'缺少 package/package/{self.packName}.vsdx'
 
+        self.packView.resetTransform()                     # 别延用上个封装的缩放，否则提示文字被放大、滚动条常驻
         sc.setSceneRect(0, 0, w, h)
         item = sc.addSimpleText(text)
         item.setBrush(QtGui.QBrush(QtCore.Qt.gray))

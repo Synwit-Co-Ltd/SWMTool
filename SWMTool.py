@@ -34,6 +34,8 @@ class SWMTool(QWidget):
 
         self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.9'))
         
+        self.tabMain.tabBar().setVisible(False)     # 通过 ComboBox 切换页面
+        
         self.initSetting()
 
         self.pinConfig = PinConfigPage(self)
@@ -111,32 +113,46 @@ class SWMTool(QWidget):
 
             self.tabMain.setTabVisible(PAGE_SDR, True)
 
+        ''' 按当前型号的 tab 可见性重建 cmbPage 条目，顺序与 tab 序号一致。 '''
+        self.cmbPage.blockSignals(True)
+        self.cmbPage.clear()
+        for i in range(self.tabMain.count()):
+            if self.tabMain.isTabVisible(i):
+                self.cmbPage.addItem(self.tabMain.tabText(i), i)     # 用户数据记录 tab 序号，供反查
+        self.cmbPage.blockSignals(False)
+
+        self.cmbPage.setCurrentIndex(self.cmbPage.findData(self.tabMain.currentIndex()))
+
+    @pyqtSlot(int)
+    def on_cmbPage_currentIndexChanged(self, idx):
+        self.tabMain.setCurrentIndex(self.cmbPage.itemData(idx))
+
     @pyqtSlot(int)
     def on_tabMain_currentChanged(self, page):
         if page in (PAGE_CAN, PAGE_SDR):
-            self.lblFreq.setVisible(True)
-            self.linFreq.setVisible(True)
-
             self.lblPack.setVisible(False)
             self.cmbPack.setVisible(False)
 
+            self.lblFreq.setVisible(True)
+            self.linFreq.setVisible(True)
+
         else:
+            self.lblFreq.setVisible(False)
+            self.linFreq.setVisible(False)
+            
             self.lblPack.setVisible(True)
             self.cmbPack.setVisible(True)
 
-            self.lblFreq.setVisible(False)
-            self.linFreq.setVisible(False)
-
     @pyqtSlot()
     def on_btnCANGen_clicked(self):
-        self.txtCANShow.clear()
+        self.txtCANInfo.clear()
 
         try:
             SystemCoreClock = int(float(self.linFreq.text()) * 1000000)
             baudrate        = int(float(self.linCANBaud.text()) * 1000)
             sampoint        =     float(self.linCANSamp.text()) / 100
         except Exception as e:
-            self.txtCANShow.setText('Core Frequency invalid')
+            self.txtCANInfo.setText('Core Frequency invalid')
             return
 
         Config = collections.namedtuple('Config', 'bs1 bs2 sjw pos brp')
@@ -153,14 +169,14 @@ class SWMTool(QWidget):
         if configs:
             configs.sort(key=lambda c: (abs(sampoint - c.pos), -c.brp))
             for (i, c) in enumerate(configs[:3]):
-                self.txtCANShow.append(f'可用配置 {i+1}（采样点 = {c.pos*100:.1f}%）：')
-                self.txtCANShow.append(f'CAN_initStruct.CAN_bs1 = CAN_BS1_{c.bs1}tq;')
-                self.txtCANShow.append(f'CAN_initStruct.CAN_bs2 = CAN_BS2_{c.bs2}tq;')
-                self.txtCANShow.append(f'CAN_initStruct.CAN_sjw = CAN_SJW_{c.sjw}tq;')
-                self.txtCANShow.append(f'CAN_initStruct.Baudrate = {baudrate};\n\n')
+                self.txtCANInfo.append(f'可用配置 {i+1}（采样点 = {c.pos*100:.1f}%）：')
+                self.txtCANInfo.append(f'CAN_initStruct.CAN_bs1 = CAN_BS1_{c.bs1}tq;')
+                self.txtCANInfo.append(f'CAN_initStruct.CAN_bs2 = CAN_BS2_{c.bs2}tq;')
+                self.txtCANInfo.append(f'CAN_initStruct.CAN_sjw = CAN_SJW_{c.sjw}tq;')
+                self.txtCANInfo.append(f'CAN_initStruct.Baudrate = {baudrate};\n\n')
 
         else:
-            self.txtCANShow.append('要求的配置无法实现')
+            self.txtCANInfo.append('要求的配置无法实现')
 
     @pyqtSlot(str)
     def on_cmbSDRAM_currentTextChanged(self, sdr):
@@ -169,22 +185,22 @@ class SWMTool(QWidget):
         
         sdr = sdrs[sdr]
 
-        self.txtSDRShow.clear()
-        self.txtSDRShow.append('tCK, CLK Cycle Time (ns)')
+        self.txtSDRInfo.clear()
+        self.txtSDRInfo.append('tCK, CLK Cycle Time (ns)')
         for cas, clk in sdr.tCLK.items():
-            self.txtSDRShow.append(f'   when CAS Latency = {cas}: {clk}')
-        self.txtSDRShow.append(f'tRP,  Row precharge time, Ie. Precharge to Activate delay (ns) :  {sdr.tRP}')
-        self.txtSDRShow.append(f'tRCD, Row to column delay, Ie. Activate to Command delay (ns)  :  {sdr.tRCD}')
-        self.txtSDRShow.append(f'tRC,  Activate to Activate on same bank (ns)                   :  {sdr.tRC}')
-        self.txtSDRShow.append(f'tRRD, Activate to Activate on different bank (ns or tCK)       :  {sdr.tRRD}')
-        self.txtSDRShow.append(f'tRAS, Activate to Precharge delay (ns)                         :  {sdr.tRAS}')
+            self.txtSDRInfo.append(f'   when CAS Latency = {cas}: {clk}')
+        self.txtSDRInfo.append(f'tRP,  Row precharge time, Ie. Precharge to Activate delay (ns) :  {sdr.tRP}')
+        self.txtSDRInfo.append(f'tRCD, Row to column delay, Ie. Activate to Command delay (ns)  :  {sdr.tRCD}')
+        self.txtSDRInfo.append(f'tRC,  Activate to Activate on same bank (ns)                   :  {sdr.tRC}')
+        self.txtSDRInfo.append(f'tRRD, Activate to Activate on different bank (ns or tCK)       :  {sdr.tRRD}')
+        self.txtSDRInfo.append(f'tRAS, Activate to Precharge delay (ns)                         :  {sdr.tRAS}')
 
     @pyqtSlot()
     def on_btnSDRGen_clicked(self):
         try:
             fMCU = float(self.linFreq.text())   # MHz
         except Exception as e:
-            self.txtSDRShow.setText('Core Frequency invalid')
+            self.txtSDRInfo.setText('Core Frequency invalid')
             return
 
         mcu = self.cmbMCU.currentText()
@@ -195,7 +211,7 @@ class SWMTool(QWidget):
         elif mcu in ('SWM341', ):
             divs = (1, 2) if fMCU <= 140 else (2, )
 
-        self.txtSDRShow.clear()
+        self.txtSDRInfo.clear()
 
         for cas, clk in sdr.tCLK.items():
             fSDR_max = 1000 / clk
@@ -223,29 +239,29 @@ class SWMTool(QWidget):
                     if nRC  < 4: nRC  = 4
 
                 if   mcu in ('SWM320', ):
-                    self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}）：')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.CellSize = SDRAM_CELLSIZE_{sdr.size*8}Mb;')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.CellWidth = SDRAM_CELLWIDTH_16;')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTMRD = SDRAM_TMRD_6;')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRRD = SDRAM_TRRD_{nRRD};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRAS = SDRAM_TRAS_{nRAS};')
+                    self.txtSDRInfo.append(f'可用配置（CAS Latency = {cas}）：')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.CellSize = SDRAM_CELLSIZE_{sdr.size*8}Mb;')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.CellWidth = SDRAM_CELLWIDTH_16;')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTMRD = SDRAM_TMRD_6;')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRRD = SDRAM_TRRD_{nRRD};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRAS = SDRAM_TRAS_{nRAS};')
 
                 elif mcu in ('SWM341', ):
-                    self.txtSDRShow.append(f'可用配置（CAS Latency = {cas}，CLKDIV = {div}）：')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.Size = SDRAM_SIZE_{sdr.size}MB;')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.ClkDiv = SDRAM_CLKDIV_{div};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
-                    self.txtSDRShow.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
+                    self.txtSDRInfo.append(f'可用配置（CAS Latency = {cas}，CLKDIV = {div}）：')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.Size = SDRAM_SIZE_{sdr.size}MB;')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.ClkDiv = SDRAM_CLKDIV_{div};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.CASLatency = SDRAM_CASLATENCY_{cas};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.RefreshTime = {sdr.tREF};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRP  = SDRAM_TRP_{nRP};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRCD = SDRAM_TRCD_{nRCD};')
+                    self.txtSDRInfo.append(f'SDRAM_InitStruct.TimeTRC  = SDRAM_TRC_{nRC};')
             
-                self.txtSDRShow.append('SDRAM_Init(&SDRAM_InitStruct);\n\n')
+                self.txtSDRInfo.append('SDRAM_Init(&SDRAM_InitStruct);\n\n')
 
     def closeEvent(self, evt):
         self.conf.set('global', 'mcu', self.cmbMCU.currentText())

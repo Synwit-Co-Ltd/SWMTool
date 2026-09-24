@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>500</height>
+    <width>900</width>
+    <height>700</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -34,10 +34,13 @@
        <property name="currentIndex">
         <number>-1</number>
        </property>
+       <property name="maxVisibleItems">
+        <number>16</number>
+       </property>
       </widget>
      </item>
      <item>
-      <spacer name="hSpacer1">
+      <spacer name="hSpacer">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
        </property>
@@ -46,7 +49,40 @@
        </property>
        <property name="sizeHint" stdset="0">
         <size>
-         <width>40</width>
+         <width>30</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblPage">
+       <property name="text">
+        <string>页面：</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="cmbPage">
+       <property name="minimumSize">
+        <size>
+         <width>120</width>
+         <height>0</height>
+        </size>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="hSpacer2">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeType">
+        <enum>QSizePolicy::Fixed</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>30</width>
          <height>20</height>
         </size>
        </property>
@@ -86,7 +122,7 @@
        </property>
        <property name="maximumSize">
         <size>
-         <width>120</width>
+         <width>80</width>
          <height>16777215</height>
         </size>
        </property>
@@ -96,7 +132,7 @@
       </widget>
      </item>
      <item>
-      <spacer name="hSpacer2">
+      <spacer name="hSpacer3">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
        </property>
@@ -122,7 +158,7 @@
      </widget>
      <widget class="QWidget" name="tabCAN">
       <attribute name="title">
-       <string>CAN 波特率</string>
+       <string>CAN 波特率配置</string>
       </attribute>
       <layout class="QVBoxLayout" name="vLayoutCAN">
        <item>
@@ -154,7 +190,7 @@
           </widget>
          </item>
          <item>
-          <spacer name="hSpacerCAN1">
+          <spacer name="hSpacerCAN">
            <property name="orientation">
             <enum>Qt::Horizontal</enum>
            </property>
@@ -163,7 +199,7 @@
            </property>
            <property name="sizeHint" stdset="0">
             <size>
-             <width>40</width>
+             <width>30</width>
              <height>20</height>
             </size>
            </property>
@@ -218,7 +254,7 @@
         </layout>
        </item>
        <item>
-        <widget class="QTextEdit" name="txtCANShow">
+        <widget class="QTextEdit" name="txtCANInfo">
          <property name="readOnly">
           <bool>true</bool>
          </property>
@@ -228,13 +264,13 @@
      </widget>
      <widget class="QWidget" name="tabSDR">
       <attribute name="title">
-       <string>SDRAM 参数</string>
+       <string>SDRAM 时序配置</string>
       </attribute>
       <layout class="QVBoxLayout" name="vLayoutSDR">
        <item>
         <layout class="QHBoxLayout" name="hLayoutSDR">
          <item>
-          <widget class="QLabel" name="lblSDRChip">
+          <widget class="QLabel" name="lblSDRAM">
            <property name="text">
             <string>器件型号：</string>
            </property>
@@ -273,7 +309,7 @@
         </layout>
        </item>
        <item>
-        <widget class="QTextEdit" name="txtSDRShow">
+        <widget class="QTextEdit" name="txtSDRInfo">
          <property name="readOnly">
           <bool>true</bool>
          </property>

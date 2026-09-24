@@ -326,7 +326,7 @@ class PinConfigPage(QtCore.QObject):
         self.packSel = {}                                   # {引脚号: 选中的功能文字}（选中后红色显示）
 
         self.packView = PackView(self)
-        layout = QtWidgets.QVBoxLayout(win.tabPIN)
+        layout = QtWidgets.QVBoxLayout(win.viewPIN)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.addWidget(self.packView)
 
@@ -368,7 +368,7 @@ class PinConfigPage(QtCore.QObject):
         self.drawPack()
 
     def onPageChanged(self, page):
-        if page == self.win.tabMain.indexOf(self.win.tabPIN):
+        if page == 0:
             QtCore.QTimer.singleShot(0, self.drawPack)     # 等页面显示、视图取得实际尺寸后再绘制
 
     def onPackWheel(self, event):

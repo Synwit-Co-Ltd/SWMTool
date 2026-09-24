@@ -62,6 +62,7 @@ class SWMTool(QWidget):
                 self.conf.set(mcu, 'sdram', '')
                 self.conf.set(mcu, 'can.baudrate', '100')
                 self.conf.set(mcu, 'can.sampoint', '75')
+                self.conf.set(mcu, 'pin.confpath', '')
 
         self.cmbMCU.addItems(mcus)
         self.cmbMCU.setCurrentIndex(self.cmbMCU.findText(self.conf.get('global', 'mcu')))
@@ -79,6 +80,7 @@ class SWMTool(QWidget):
         self.cmbSDRAM.setCurrentText(self.conf.get(mcu, 'sdram'))
         self.linCANBaud.setText(self.conf.get(mcu, 'can.baudrate'))
         self.linCANSamp.setText(self.conf.get(mcu, 'can.sampoint'))
+        self.linPinPath.setText(self.conf.get(mcu, 'pin.confpath'))
 
         if mcu == 'SWM181':
             self.tabMain.setTabVisible(PAGE_CAN, True)
@@ -142,6 +144,56 @@ class SWMTool(QWidget):
             
             self.lblPack.setVisible(True)
             self.cmbPack.setVisible(True)
+
+    @pyqtSlot()
+    def on_btnPinPath_clicked(self):
+        path, filter = QFileDialog.getOpenFileName(caption='加载引脚配置文件', filter='引脚配置文件 (*.csv)', directory=self.linPinPath.text())
+        if path:
+            self.linPinPath.setText(path)
+
+            with open(path, 'r') as csvf:
+                if csvf.readline().strip() != self.cmbPack.currentText():
+                    QMessageBox.critical(self, '错误', '配置文件记录的封装与当前选择的封装不一致')
+                    return
+
+                packSel = {}
+                for line in csvf:
+                    fields = [field.strip() for field in line.strip().split(',')]
+                    if len(fields) == 3 and fields[0].isdigit() and int(fields[0]) in self.pinConfig.packPins:
+                        packSel[int(fields[0])] = fields[2]
+
+                self.pinConfig.packSel = packSel    # 加载即整体替换当前的选择
+                self.pinConfig.drawPack()
+
+    @pyqtSlot()
+    def on_btnPinSave_clicked(self):
+        path, filter = QFileDialog.getSaveFileName(caption='保存引脚配置文件', filter='引脚配置文件 (*.csv)', directory=self.linPinPath.text())
+        if path:
+            self.linPinPath.setText(path)
+            
+            with open(path, 'w') as csvf:
+                csvf.write(f'{self.cmbPack.currentText()}\n\n')
+
+                for num, func in sorted(self.pinConfig.packSel.items()):     # 功能不为 GPIO 的引脚
+                    csvf.write(f'{num}, {self.pinConfig.packPins[num]}, {func}\n')
+
+    @pyqtSlot()
+    def on_btnPinGen_clicked(self):
+        pins = []
+        for num, func in self.pinConfig.packSel.items():
+            label = self.pinConfig.packPins[num]        # PC5
+            port = label[1:].rstrip('0123456789')       #  C
+            pnum = label[1 + len(port):]                #   5
+            pins.append((port, int(pnum), func))
+
+        c_code = ''
+        for port, pnum, func in sorted(pins):
+            c_code += f'PORT_Init(PORT{port}, PIN{pnum}, PORT{port}_PIN{pnum}_{func}, 1);\n'
+
+        path, filter = QFileDialog.getSaveFileName(caption='保存生成的 C 代码', filter='C Code (*.c)', directory=f'{self.linPinPath.text()}.c')
+        if path:
+            with open(path, 'w') as cf:
+                cf.write(c_code)
 
     @pyqtSlot()
     def on_btnCANGen_clicked(self):
@@ -270,6 +322,7 @@ class SWMTool(QWidget):
         self.conf.set(self.cmbMCU.currentText(), 'sdram', self.cmbSDRAM.currentText())
         self.conf.set(self.cmbMCU.currentText(), 'can.baudrate', self.linCANBaud.text())
         self.conf.set(self.cmbMCU.currentText(), 'can.sampoint', self.linCANSamp.text())
+        self.conf.set(self.cmbMCU.currentText(), 'pin.confpath', self.linPinPath.text())
         self.conf.write(open('setting.ini', 'w', encoding='utf-8'))
 
 

@@ -135,7 +135,7 @@ class VsdxPage:
         shapes = ET.fromstring(zipf.read('visio/pages/page1.xml')).find(VS_NS + 'Shapes')
         self.shapes = [VsdxShape(shape) for shape in shapes] if shapes is not None else []
 
-    def draw(self, scene, packPins, pinFunct):
+    def draw(self, scene, packPins, pinFunct, prevFunct):
         ''' 将 Visio page 中的 shapes 画进场景：几何画成矢量路径，编号等文字按 Visio 的文字块规则摆放 '''
         DPI = 96.0      # 场景坐标每英寸像素数，只决定文字/线宽的基准，整体仍会适配视图
         GAP = 6.0       # 编号框与文字的间距（像素）
@@ -244,14 +244,19 @@ class VsdxPage:
             if not pname:
                 continue
 
-            text = pinFunct.get(pnum) or pname
+            if pnum in pinFunct:                    # 选中的非 GPIO 功能，红色显示
+                text, color = pinFunct[pnum], QtCore.Qt.red
+            elif pnum in prevFunct:                 # 预览的非 GPIO 功能，浅红色显示
+                text, color = prevFunct[pnum], QtGui.QColor('#FF7777')
+            else:                                   # 默认的 GPIO 功能，黑色显示
+                text, color = pname, QtCore.Qt.black
 
             font = QtGui.QFont('Segoe UI')
             font.setPixelSize(max(4, round(float(shape.rowCell('Character', 'Size', FONT_SIZE) or 0) * DPI)))
             
             item = QtWidgets.QGraphicsSimpleTextItem(text)
             item.setFont(font)
-            item.setBrush(QtGui.QBrush(QtCore.Qt.red if pnum in pinFunct else QtCore.Qt.black))
+            item.setBrush(QtGui.QBrush(color))
             item.setData(0, pnum)   # 点文字弹出该引脚的功能列表
             item.setZValue(1)
             scene.addItem(item)
@@ -321,9 +326,15 @@ class PinConfigPage(QtCore.QObject):
         self.pinFunct = {}              # {引脚序号: 选中的非 GPIO 引脚功能}，非 GPIO 功能以红色显示
 
         self.vsdxView = VsdxView(self)  # 用来显示 self.vsdxPage 的画布视图
-        layout = QtWidgets.QVBoxLayout(win.viewPIN)
+        self.lsPeriph = QtWidgets.QListWidget()
+        self.lsPeriph.setFixedWidth(self.lsPeriph.fontMetrics().horizontalAdvance('M' * 20) + 2 * self.lsPeriph.frameWidth())
+        self.lsPeriph.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)   # 去掉选中高亮
+        self.lsPeriph.setFocusPolicy(QtCore.Qt.NoFocus)                           # 去掉选中焦点虚框
+        self.lsPeriph.itemClicked.connect(self.onPeriphClicked)
+        layout = QtWidgets.QHBoxLayout(win.viewPIN)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.addWidget(self.vsdxView)
+        layout.addWidget(self.lsPeriph)
+        layout.addWidget(self.vsdxView, 1)
 
         self.viewZoom = 1.0             # self.vsdxView 的缩放倍数
 
@@ -398,6 +409,17 @@ class PinConfigPage(QtCore.QObject):
 
         self.drawPack(keepView=True)
 
+    def onPeriphClicked(self, item):        # 单击条目背景变浅红，再次单击恢复原色；变浅红前遍历恢复所有条目原色
+        style = item.background().style()   # 记录下被点击条目原本背景色
+
+        for i in range(self.lsPeriph.count()):
+            self.lsPeriph.item(i).setBackground(QtGui.QBrush())     # 空画刷即默认背景
+
+        if style == QtCore.Qt.NoBrush:
+            item.setBackground(QtGui.QColor('#FFCCCC'))
+
+        self.drawPack(keepView=True)        # 画布同步显示/恢复匹配引脚的浅红预览功能
+
     def drawPack(self, keepView=False):
         ''' 在 self.vsdxView 中绘制 self.vsdxPage。
             keepView = True：放大后拖滚动条查看顶部/底部引脚、点击引脚选择功能而重画时，视图不再跳回芯片中心。
@@ -421,9 +443,28 @@ class PinConfigPage(QtCore.QObject):
                 return          # 视图尚未显示，等页面切换或尺寸变化时再画
 
             if self.vsdxPage is not None:
+                periph = None       # 左侧列表中选中的外设以浅红色显示
+                for i in range(self.lsPeriph.count()):
+                    if self.lsPeriph.item(i).background().style() != QtCore.Qt.NoBrush:
+                        periph = self.lsPeriph.item(i).text()
+                        break
+
+                prevFunct = {}      # {引脚序号: 预览功能}：未记录在 pinFunct 中的引脚，功能名包含 periph 的记录在此
+                if periph is not None:
+                    for pnum, pname in self.packPins.items():
+                        if pnum in self.pinFunct:
+                            continue
+                        for func in self.pinFuncs.get(pname, []):
+                            if '_' in func and func.split('_')[0] == periph:
+                                prevFunct[pnum] = func
+                                break
+                            elif re.match(f'{periph}[AB]N?', func):
+                                prevFunct[pnum] = func
+                                break
+
                 # 引脚文字在某一边变长但窗口还放得下时，缩放比例不变、图形位置不动；
                 # 长到放不下时按对称包围盒缩小缩放（芯片中心不动），让文字完全显示
-                bRect, center = self.vsdxPage.draw(scene, self.packPins, self.pinFunct)
+                bRect, center = self.vsdxPage.draw(scene, self.packPins, self.pinFunct, prevFunct)
                 halfW = max(center.x() - bRect.left(), bRect.right() - center.x())
                 halfH = max(center.y() - bRect.top(), bRect.bottom() - center.y())
                 scene.setSceneRect(QtCore.QRectF(center.x() - halfW, center.y() - halfH, 2 * halfW, 2 * halfH)
@@ -462,10 +503,9 @@ class PinConfigPage(QtCore.QObject):
         finally:
             self._drawing = False
 
-    @staticmethod
-    def parsePinFuncs(path):
-        ''' 从 SWM341_port.h 中解析出各引脚的可选功能，返回 {引脚名称: [功能, ...]}。
-            形如 PORTC_PIN5_I2C1_SCL 的宏解析出 PC5: I2C1_SCL。
+    def parsePinFuncs(self, path):
+        ''' 从 SWM341_port.h 中解析出各引脚的可选功能，返回 {引脚名称: [功能, ...]}
+            如 PORTC_PIN5_I2C1_SCL 解析出 PC5: I2C1_SCL。
         '''
         funcs = {}
         try:
@@ -476,5 +516,23 @@ class PinConfigPage(QtCore.QObject):
                         funcs[pname].append(m.group(3))
         except OSError:
             pass
+
+        ''' 从 SWM341_port.h 中解析出外设名称：宏名恰好被 _ 分成四部分时取第三部分，
+            如 PORTC_PIN5_I2C1_SCL 解析出 I2C1
+        '''
+        periphs = set()
+        try:
+            with open(path, encoding='utf-8', errors='ignore') as cf:
+                for m in re.finditer(r'#define\s+(\w+)', cf.read()):
+                    parts = m.group(1).split('_')
+                    if len(parts) == 4:
+                        periphs.add(parts[2])
+                    elif len(parts) == 3 and (m := re.match(r'(PWM\d)[AB]N?', parts[2])):
+                        periphs.add(m.group(1))
+        except OSError:
+            pass
+
+        self.lsPeriph.clear()
+        self.lsPeriph.addItems(sorted(periphs))
 
         return funcs

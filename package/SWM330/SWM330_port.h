@@ -379,7 +379,7 @@ void PORT_Init(PORT_TypeDef * PORTx, uint32_t n, uint32_t func, uint32_t digit_i
 
 
 
-/* ����궨���ȡֵȫ������ȷֵ�Ļ����ϡ���100��������������궨���ֵ���Ӷ�����⺯���ı�д */
+/* 下面宏定义的取值全部在正确值的基础上“加100”，以区分上面宏定义的值，从而方便库函数的编写 */
 #define FUNMUX0_UART0_TXD		100
 #define FUNMUX0_UART1_TXD		101
 #define FUNMUX0_UART2_TXD		102

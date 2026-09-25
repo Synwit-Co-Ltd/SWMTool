@@ -1,7 +1,7 @@
 #ifndef __SWM181_PORT_H__
 #define __SWM181_PORT_H__
 
-void PORT_Init(PORT_TypeDef * PORTx, uint32_t n, uint32_t func, uint32_t digit_in_en);	//¶Ë¿ÚÒı½Å¹¦ÄÜÑ¡Ôñ£¬Æä¿ÉÈ¡ÖµÈçÏÂ£º
+void PORT_Init(PORT_TypeDef * PORTx, uint32_t n, uint32_t func, uint32_t digit_in_en);	//ç«¯å£å¼•è„šåŠŸèƒ½é€‰æ‹©ï¼Œå…¶å¯å–å€¼å¦‚ä¸‹ï¼š
 
 
 #define PORTA_PIN0_GPIO		 	0
@@ -254,7 +254,7 @@ void PORT_Init(PORT_TypeDef * PORTx, uint32_t n, uint32_t func, uint32_t digit_i
 #define PORTE_PIN7_FUNMUX		1
 
 
-/* ÏÂÃæºê¶¨ÒåµÄÈ¡ÖµÈ«²¿ÔÚÕıÈ·ÖµµÄ»ù´¡ÉÏ¡°¼Ó100¡±£¬ÒÔÇø·ÖÉÏÃæºê¶¨ÒåµÄÖµ£¬´Ó¶ø·½±ã¿âº¯ÊıµÄ±àĞ´*/
+/* ä¸‹é¢å®å®šä¹‰çš„å–å€¼å…¨éƒ¨åœ¨æ­£ç¡®å€¼çš„åŸºç¡€ä¸Šâ€œåŠ 100â€ï¼Œä»¥åŒºåˆ†ä¸Šé¢å®å®šä¹‰çš„å€¼ï¼Œä»è€Œæ–¹ä¾¿åº“å‡½æ•°çš„ç¼–å†™*/
 #define FUNMUX_UART0_RXD	100
 #define FUNMUX_UART0_TXD	101
 #define FUNMUX_UART1_RXD	102

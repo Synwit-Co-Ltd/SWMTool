@@ -69,7 +69,7 @@ class SWMTool(QWidget):
 
     @pyqtSlot(str)
     def on_cmbMCU_currentIndexChanged(self, mcu):
-        self.pinPage.portFuncs = self.pinPage.loadPortFuncs(os.path.join('package', mcu, mcu + '_port.h'))
+        self.pinPage.pinFuncs = self.pinPage.parsePinFuncs(os.path.join('package', mcu, mcu + '_port.h'))
 
         self.cmbPack.clear()
         self.cmbPack.addItems(sorted(name[:-4] for name in os.listdir(f'package/{mcu}') if name.endswith('.txt')))
@@ -167,13 +167,13 @@ class SWMTool(QWidget):
                     QMessageBox.critical(self, '错误，试图加载其他封装的引脚配置', f'配置文件记录的封装（{package}）与当前选择的封装（{self.cmbPack.currentText()}）不一致')
                     return
 
-                packSel = {}
+                pinFunct = {}
                 for line in csvf:
                     fields = [field.strip() for field in line.strip().split(',')]
                     if len(fields) == 3 and fields[0].isdigit() and int(fields[0]) in self.pinPage.packPins:
-                        packSel[int(fields[0])] = fields[2]
+                        pinFunct[int(fields[0])] = fields[2]
 
-                self.pinPage.packSel = packSel    # 加载即整体替换当前的选择
+                self.pinPage.pinFunct = pinFunct    # 加载即整体替换当前的选择
                 self.pinPage.drawPack()
 
     @pyqtSlot()
@@ -185,13 +185,13 @@ class SWMTool(QWidget):
             with open(path, 'w') as csvf:
                 csvf.write(f'{self.cmbPack.currentText()}\n\n')
 
-                for num, func in sorted(self.pinPage.packSel.items()):     # 功能不为 GPIO 的引脚
+                for num, func in sorted(self.pinPage.pinFunct.items()):     # 功能不为 GPIO 的引脚
                     csvf.write(f'{num}, {self.pinPage.packPins[num]}, {func}\n')
 
     @pyqtSlot()
     def on_btnPinGen_clicked(self):
         pins = []
-        for num, func in self.pinPage.packSel.items():
+        for num, func in self.pinPage.pinFunct.items():
             label = self.pinPage.packPins[num]          # PC5
             port = label[1:].rstrip('0123456789')       #  C
             pnum = label[1 + len(port):]                #   5

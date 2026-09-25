@@ -1,7 +1,7 @@
 #ifndef __SWM201_PORT_H__
 #define __SWM201_PORT_H__
 
-void PORT_Init(PORT_TypeDef * PORTx, uint32_t n, uint32_t func, uint32_t digit_in_en);	//端口引脚功能选择，其可取值如下：
+void PORT_Init(PORT_TypeDef * PORTx, uint32_t n, uint32_t func, uint32_t digit_in_en);	//绔彛寮曡剼鍔熻兘閫夋嫨锛屽叾鍙彇鍊煎涓嬶細
 
 
 #define PORTA_PIN0_GPIO         0

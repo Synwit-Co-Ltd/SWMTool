@@ -135,7 +135,7 @@ class VsdxPage:
         shapes = ET.fromstring(zipf.read('visio/pages/page1.xml')).find(VS_NS + 'Shapes')
         self.shapes = [VsdxShape(shape) for shape in shapes] if shapes is not None else []
 
-    def draw(self, scene, packPins, packSel):
+    def draw(self, scene, packPins, pinFunct):
         ''' 将 Visio page 中的 shapes 画进场景：几何画成矢量路径，编号等文字按 Visio 的文字块规则摆放 '''
         DPI = 96.0      # 场景坐标每英寸像素数，只决定文字/线宽的基准，整体仍会适配视图
         GAP = 6.0       # 编号框与文字的间距（像素）
@@ -149,7 +149,7 @@ class VsdxPage:
         sceneT.translate(0, self.height * DPI)
         sceneT.scale(DPI, -DPI)
 
-        def addText(shape, xform, baseAngle, text, color, num):
+        def addText(shape, xform, baseAngle, text, color, pnum):
             w = float(shape.cell('Width', 0) or 0)
             h = float(shape.cell('Height', 0) or 0)
 
@@ -187,18 +187,21 @@ class VsdxPage:
             item.setBrush(QtGui.QBrush(color))
             item.setPos(pos.x() * DPI, (self.height - pos.y()) * DPI)
             item.setRotation(-math.degrees(baseAngle + angle))
-            if num is not None:
-                item.setData(0, num)    # 点击文字弹出该引脚的功能列表
+            if pnum is not None:
+                item.setData(0, pnum)   # 点击文字弹出该引脚的功能列表
             item.setZValue(1)           # z 值越大显示越靠前（越在上层）
             scene.addItem(item)
 
-        fit = [QtCore.QRectF()]         # 适配包围盒（用列表以便闭包内修改）
+        ''' 从空矩形开始，每画一个元素（几何路径、引脚序号框）就用 united() 并入其包围盒，
+            最终返回的是全部绘制内容在场景坐标下的总包围盒。用于计算场景矩形和"整体适配视图"的缩放。
+        '''
+        bRect = [QtCore.QRectF()]       # boundingRect, 用列表以便闭包内修改
 
         def walk(shape, xform, baseAngle):
             xform = shape.transform() * xform   # Qt 的 a*b 是先 a 后 b：子变换在前、父变换在后
             angle = baseAngle + float(shape.cell('Angle', 0) or 0)
 
-            num = int(shape.text) if shape.text.isdigit() else None
+            pnum = int(shape.text) if shape.text.isdigit() else None
 
             for path, sect_cells in shape.geometryPaths():
                 pen = brush = None
@@ -208,15 +211,15 @@ class VsdxPage:
                     brush = QtGui.QBrush(shape.color('FillForegnd'))
                 if pen is not None or brush is not None:
                     item = scene.addPath(sceneT.map(xform.map(path)), pen or QtGui.QPen(QtCore.Qt.NoPen), brush or QtGui.QBrush(QtCore.Qt.NoBrush))
-                    if num is not None:
-                        item.setData(0, num)      # 引脚编号的小框也可点击
+                    if pnum is not None:
+                        item.setData(0, pnum)   # 引脚序号的小框也可点击
                     item.setZValue(0)
-                    fit[0] = fit[0].united(item.boundingRect())
+                    bRect[0] = bRect[0].united(item.boundingRect())
 
             if shape.text:
-                addText(shape, xform, angle, shape.text, QtCore.Qt.black, num)
+                addText(shape, xform, angle, shape.text, QtCore.Qt.black, pnum)
 
-            if num is not None:                   # 编号框在页面里的位置，供计算引脚文字位置
+            if pnum is not None:                # 引脚序号框在页面里的位置，供计算引脚文字位置
                 w = float(shape.cell('Width', 0) or 0)
                 h = float(shape.cell('Height', 0) or 0)
                 xs, ys = [], []
@@ -224,32 +227,32 @@ class VsdxPage:
                     xp = xform.map(QtCore.QPointF(x, y))
                     xs.append(xp.x() * DPI)
                     ys.append((self.height - xp.y()) * DPI)
-                digits.append((num, min(xs), min(ys), max(xs), max(ys), shape))
-                fit[0] = fit[0].united(QtCore.QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)))
+                pads.append((pnum, min(xs), min(ys), max(xs), max(ys), shape))
+                bRect[0] = bRect[0].united(QtCore.QRectF(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)))
 
             for child in shape.children:
                 walk(child, xform, angle)
 
-        digits = []     # [(编号, 左, 上, 右, 下, 形状), ...]（场景坐标）
+        pads = []   # 即封装矩形四周表示引脚的小矩形，[(引脚序号, 左, 上, 右, 下, 形状), ...]（场景坐标）
         for shape in self.shapes:
             walk(shape, QtGui.QTransform(), 0.0)
 
-        cx = sum(d[1] + d[3] for d in digits) / (2 * len(digits)) if digits else 0      # centre x
-        cy = sum(d[2] + d[4] for d in digits) / (2 * len(digits)) if digits else 0
-        for num, x0, y0, x1, y1, shape in digits:
-            name = packPins.get(num)
-            if not name:
+        cx = sum(pad[1] + pad[3] for pad in pads) / (2 * len(pads)) if pads else 0      # centre x
+        cy = sum(pad[2] + pad[4] for pad in pads) / (2 * len(pads)) if pads else 0
+        for pnum, x0, y0, x1, y1, shape in pads:
+            pname = packPins.get(pnum)
+            if not pname:
                 continue
 
-            text = packSel.get(num) or name
+            text = pinFunct.get(pnum) or pname
 
             font = QtGui.QFont('Segoe UI')
             font.setPixelSize(max(4, round(float(shape.rowCell('Character', 'Size', FONT_SIZE) or 0) * DPI)))
             
             item = QtWidgets.QGraphicsSimpleTextItem(text)
             item.setFont(font)
-            item.setBrush(QtGui.QBrush(QtCore.Qt.red if num in packSel else QtCore.Qt.black))
-            item.setData(0, num)    # 点文字弹出该引脚的功能列表
+            item.setBrush(QtGui.QBrush(QtCore.Qt.red if pnum in pinFunct else QtCore.Qt.black))
+            item.setData(0, pnum)   # 点文字弹出该引脚的功能列表
             item.setZValue(1)
             scene.addItem(item)
 
@@ -259,36 +262,39 @@ class VsdxPage:
             if abs((x0 + x1) / 2 - cx) > abs((y0 + y1) / 2 - cy):   # 离中心横向更远：左右边
                 if (x0 + x1) / 2 < cx:      # 左边：右端贴编号、垂直居中
                     item.setPos(x0 - GAP - tw, (y0 + y1) / 2 - th / 2)
-                    fit[0] = fit[0].united(QtCore.QRectF(x0 - GAP - tw, (y0 + y1) / 2 - th / 2, tw, th))
+                    bRect[0] = bRect[0].united(QtCore.QRectF(x0 - GAP - tw, (y0 + y1) / 2 - th / 2, tw, th))
                 else:                       # 右边：左端贴编号、垂直居中
                     item.setPos(x1 + GAP, (y0 + y1) / 2 - th / 2)
-                    fit[0] = fit[0].united(QtCore.QRectF(x1 + GAP, (y0 + y1) / 2 - th / 2, tw, th))
+                    bRect[0] = bRect[0].united(QtCore.QRectF(x1 + GAP, (y0 + y1) / 2 - th / 2, tw, th))
             else:                                                   # 顶/底边：竖排，自下而上读
                 item.setRotation(-90)
                 if (y0 + y1) / 2 < cy:      # 顶边：末端贴编号、向上延伸
                     item.setPos((x0 + x1) / 2 - th / 2, y0 - GAP)
-                    fit[0] = fit[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y0 - GAP - tw, th, tw))
+                    bRect[0] = bRect[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y0 - GAP - tw, th, tw))
                 else:                       # 底边：起端贴编号、向下延伸
                     item.setPos((x0 + x1) / 2 - th / 2, y1 + GAP + tw)
-                    fit[0] = fit[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y1 + GAP, th, tw))
+                    bRect[0] = bRect[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y1 + GAP, th, tw))
 
-        return fit[0], QtCore.QPointF(cx, cy) if digits else fit[0].center()
+        return bRect[0], QtCore.QPointF(cx, cy) if pads else bRect[0].center()
 
 
-class PackView(QtWidgets.QGraphicsView):
+class VsdxView(QtWidgets.QGraphicsView):
+    ''' 用于显示 VsdxPage 的画布视图 '''
     def __init__(self, owner, parent=None):
         super().__init__(parent)
         self.owner = owner
+
         self.setScene(QtWidgets.QGraphicsScene(self))
         self.setBackgroundBrush(QtCore.Qt.white)
-        self.setAlignment(QtCore.Qt.AlignCenter)             # 图形比视图小时居中显示
+        self.setAlignment(QtCore.Qt.AlignCenter)
         self.setRenderHint(QtGui.QPainter.Antialiasing)
         self.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
+
         self._lastSize = None
 
     def wheelEvent(self, event):
         if not self.owner.onPackWheel(event):
-            super().wheelEvent(event)                                   # 普通滚轮：交给视图滚动
+            super().wheelEvent(event)
 
     def mousePressEvent(self, event):
         if not self.owner.onPackClick(event):
@@ -297,147 +303,159 @@ class PackView(QtWidgets.QGraphicsView):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         size = self.viewport().size()
-        if (size.width(), size.height()) != self._lastSize:             # 尺寸没变就不重画，避免滚动条出现/消失引起循环
-            keepView = self._lastSize is not None                       # 首次显示前没有可保持的视口位置，仍居中
+        if (size.width(), size.height()) != self._lastSize:     # 尺寸没变就不重画，避免滚动条出现/消失引起循环
+            keepView = self._lastSize is not None               # 首次显示前没有可保持的视口位置，仍居中
             self._lastSize = (size.width(), size.height())
             self.owner.drawPack(keepView)
 
 
 class PinConfigPage(QtCore.QObject):
-    def __init__(self, win):
-        '''win 为主窗口（SWMTool），顶栏的 cmbPack/cmbMCU、tabPIN 页均来自 SWMTool.ui。'''
+    def __init__(self, win):            # win 为主窗口（SWMTool）
         super().__init__(win)
-
         self.win = win
 
-        self.packPage = None                                # 当前封装的图形（vsdx 第一页）
-        self.packZoom = 1.0                                 # 封装图形的缩放倍数
-        self.packName = ''                                  # 从 txt 第一行读出的封装名称
-        self.packPins = {}                                  # txt 记录的 {引脚号: 引脚文字}
-        self.portFuncs = {}                                 # <MCU>_port.h 解析出的 {引脚名: [功能, ...]}
-        self.packSel = {}                                   # {引脚号: 选中的功能文字}（选中后红色显示）
-        self._drawing = False                               # drawPack 重入保护：重画中滚动条出现/消失会再触发 resizeEvent
+        self.vsdxPage = None            # visio vsdx 文件页
+        self.packName = ''              # 封装名称，如 LQFP-64
+        self.packPins = {}              # SWM34SRET6.txt 记录的 {引脚序号: 引脚名称}，如 45: PM0
+        self.pinFuncs = {}              # SWM341_port.h 解析出的 {引脚名称: [引脚功能, ...]}，如 PM0: ['GPIO', 'UART0_RX', 'PWM_BRK1', 'CAN1_TX']
+        self.pinFunct = {}              # {引脚序号: 选中的非 GPIO 引脚功能}，非 GPIO 功能以红色显示
 
-        self.packView = PackView(self)
+        self.vsdxView = VsdxView(self)  # 用来显示 self.vsdxPage 的画布视图
         layout = QtWidgets.QVBoxLayout(win.viewPIN)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.addWidget(self.packView)
+        layout.addWidget(self.vsdxView)
+
+        self.viewZoom = 1.0             # self.vsdxView 的缩放倍数
+
+        self._drawing = False
 
     def onPackChanged(self, pack):
-        mcu = self.win.cmbMCU.currentText()
-
-        self.packPage = None
-        self.packZoom = 1.0
+        self.vsdxPage = None
+        self.viewZoom = 1.0
         self.packName = ''
         self.packPins = {}
-        self.packSel = {}
+        self.pinFunct = {}
+
         if pack:
             try:
-                with open(os.path.join('package', mcu, pack + '.txt'), encoding='utf-8') as f:
-                    self.packName = f.readline().strip()      # 封装名称记录在 txt 第一行
-                    for line in f:                            # 其余行记录 引脚编号: 引脚文字
-                        pin, _, pads = line.partition(':')
-                        if pin.strip().isdigit():
-                            self.packPins[int(pin)] = pads.strip()
+                with open(os.path.join('package', self.win.cmbMCU.currentText(), pack + '.txt')) as txtf:
+                    self.packName = txtf.readline().strip()     # 第一行记录 封装名称
+                    for line in txtf:                           # 其余行记录 引脚序号: 引脚名称
+                        pnum, _, pname = line.partition(':')
+                        if pnum.strip().isdigit():
+                            self.packPins[int(pnum)] = pname.strip()
             except OSError:
                 pass
 
-            if self.packName:
-                try:
-                    self.packPage = VsdxPage(os.path.join('package', 'package', self.packName + '.vsdx'))
-                except Exception:
-                    self.packPage = None
+        if self.packName:
+            try:
+                self.vsdxPage = VsdxPage(os.path.join('package', 'package', f'{self.packName}.vsdx'))
+            except Exception:
+                self.vsdxPage = None
 
         self.drawPack()
 
     def onPackWheel(self, event):
-        '''Ctrl+滚轮：缩放封装图形（以视口中心为不动点）。返回是否已处理。'''
-        if event.modifiers() & QtCore.Qt.ControlModifier and self.packPage is not None:
-            delta = event.angleDelta().y()
+        ''' Ctrl+滚轮：缩放封装图形（以视口中心为不动点） '''
+        if event.modifiers() & QtCore.Qt.ControlModifier and self.vsdxPage is not None:
+            delta = event.angleDelta().y()      # 滚轮转动的角度
             if delta:
-                newZoom = min(6, max(0.3, self.packZoom * (1.1 if delta > 0 else 1 / 1.1)))
-                anchor = self.packView.mapToScene(self.packView.viewport().rect().center())
-                self.packView.scale(newZoom / self.packZoom, newZoom / self.packZoom)
-                self.packView.centerOn(anchor)
-                self.packZoom = newZoom
+                newZoom = min(6, max(0.3, self.viewZoom * (1.1 if delta > 0 else 1 / 1.1)))
+                anchor = self.vsdxView.mapToScene(self.vsdxView.viewport().rect().center())
+                self.vsdxView.scale(newZoom / self.viewZoom, newZoom / self.viewZoom)
+                self.vsdxView.centerOn(anchor)
+                self.viewZoom = newZoom
             return True
         return False
 
     def onPackClick(self, event):
-        '''点击引脚编号或编号旁的文字：弹出该引脚的可选功能列表。返回是否已处理。'''
-        item = self.packView.itemAt(event.pos())
+        ''' 点击引脚或引脚旁的文字：弹出该引脚的可选功能列表 '''
+        item = self.vsdxView.itemAt(event.pos())
         if item is not None:
-            num = item.data(0)
-            if num is not None:
-                self.popupPinFuncs(num, event.globalPos())
+            pnum = item.data(0)
+            if pnum is not None:
+                pname = self.packPins.get(pnum, '')
+                funcs = self.pinFuncs.get(pname)
+                if funcs:
+                    menu = QtWidgets.QMenu(self.win)
+                    menu.addAction(pname).setEnabled(False)     # 首项为引脚名，作为标题不可选
+                    for func in funcs:
+                        menu.addAction(func, lambda func=func: self.setPinFunc(pnum, func))
+                    funct = self.pinFunct.get(pnum, 'GPIO')     # 当前功能；未选其他功能时默认为 GPIO
+                    if funct in funcs:
+                        font = menu.actions()[funcs.index(funct) + 1].font()
+                        font.setBold(True)
+                        menu.actions()[funcs.index(funct) + 1].setFont(font)
+                    menu.exec_(event.globalPos())
                 return True
         return False
 
-    def drawPack(self, keepView=False):
-        '''在 packView 中显示当前封装的图形（package/package/<封装名>.vsdx）。
+    def setPinFunc(self, pnum, func):       # 弹出列表中点击引脚功能条目触发的执行代码
+        if func == 'GPIO':
+            self.pinFunct.pop(pnum, None)   # GPIO 是默认功能，不在 {引脚序号: 选中的非 GPIO 引脚功能} 表格中记录
+        else:
+            self.pinFunct[pnum] = func
 
-        keepView 为 True 时保持视口当前对准的场景位置：放大后拖滚动条查看顶部/底部
-        引脚、点击引脚选择功能而重画时，视图不再跳回芯片中心。
+        self.drawPack(keepView=True)
+
+    def drawPack(self, keepView=False):
+        ''' 在 self.vsdxView 中绘制 self.vsdxPage。
+            keepView = True：放大后拖滚动条查看顶部/底部引脚、点击引脚选择功能而重画时，视图不再跳回芯片中心。
         '''
-        PACK_PAD = 8.0                            # 场景矩形相对图形包围盒的外扩量（场景单位）
+        PACK_PAD = 8.0          # 场景矩形相对图形包围盒的外扩量（场景单位）
 
         if self._drawing:
-            return                                 # 重画过程中滚动条出现/消失引发的 resizeEvent 重入，忽略
+            return              # 重画过程中滚动条出现/消失引发的 resizeEvent 重入，忽略
+
         self._drawing = True
 
         try:
-            scene = self.packView.scene()
+            scene = self.vsdxView.scene()
 
-            anchor = self.packView.mapToScene(self.packView.viewport().rect().center()) if keepView else None
+            anchor = self.vsdxView.mapToScene(self.vsdxView.viewport().rect().center()) if keepView else None
 
             scene.clear()
 
-            w, h = self.packView.viewport().width(), self.packView.viewport().height()
+            w, h = self.vsdxView.viewport().width(), self.vsdxView.viewport().height()
             if w < 10 or h < 10:
-                return                             # 视图尚未显示，等页面切换或尺寸变化时再画
+                return          # 视图尚未显示，等页面切换或尺寸变化时再画
 
-            if self.packPage is not None:
-                fit, center = self.packPage.draw(scene, self.packPins, self.packSel)
-                # 场景矩形、缩放都以芯片中心对称、视图以芯片中心居中：引脚文字在某一边
-                # 变长但窗口还放得下时，缩放比例不变、图形位置不动；长到放不下时按对称
-                # 包围盒缩小缩放（芯片中心不动），让文字完全显示
-                halfW = max(center.x() - fit.left(), fit.right() - center.x())
-                halfH = max(center.y() - fit.top(), fit.bottom() - center.y())
+            if self.vsdxPage is not None:
+                # 引脚文字在某一边变长但窗口还放得下时，缩放比例不变、图形位置不动；
+                # 长到放不下时按对称包围盒缩小缩放（芯片中心不动），让文字完全显示
+                bRect, center = self.vsdxPage.draw(scene, self.packPins, self.pinFunct)
+                halfW = max(center.x() - bRect.left(), bRect.right() - center.x())
+                halfH = max(center.y() - bRect.top(), bRect.bottom() - center.y())
                 scene.setSceneRect(QtCore.QRectF(center.x() - halfW, center.y() - halfH, 2 * halfW, 2 * halfH)
-                                .adjusted(-PACK_PAD, -PACK_PAD, PACK_PAD, PACK_PAD))
-                view = self.packView
-                view.resetTransform()
-                rect = view.contentsRect()                     # 不含边框、不含滚动条的完整可用区域
-                fullW, fullH = rect.width(), rect.height()
+                                                .adjusted(-PACK_PAD, -PACK_PAD, PACK_PAD, PACK_PAD))
+                self.vsdxView.resetTransform()
+                _, _, fullW, fullH = self.vsdxView.contentsRect().getRect()         # 不含边框、不含滚动条的完整可用区域
                 if fullW > 0 and fullH > 0 and halfW > 0 and halfH > 0:
-                    # 缩放要按含留白的场景尺寸算：留白若不计入，s>1 时会被放大成 PACK_PAD*s
-                    # 像素，整块场景反而比视口高/宽，QGraphicsView 就冒出滚动条（窗口越大越明显）
-                    boxW, boxH = 2 * (halfW + PACK_PAD), 2 * (halfH + PACK_PAD)
-                    # 滚动条出现会缩小视口、视口缩小又改变缩放、缩放改变又反过来决定滚动条
-                    # 是否出现：按滚动条在场时的视口算缩放，会让滚动条出现/消失来回震荡、
-                    # 重画停不下来（放大到约 2 倍且包围盒宽高比接近视口时正反馈发散、界面
-                    # 卡死）。故以完整区域为基准，把滚动条要占的空间预留出来，迭代到滚动
-                    # 条出现/消失的判定稳定为止
-                    sbar = max(view.verticalScrollBar().sizeHint().width(), 12)
+                    boxW, boxH = 2 * (halfW + PACK_PAD), 2 * (halfH + PACK_PAD)     # 缩放要按含留白的场景尺寸算
+                    ''' 滚动条出现会缩小视口、视口缩小又改变缩放、缩放改变又反过来决定滚动条是否出现：
+                        按滚动条在场时的视口算缩放，会让滚动条出现/消失来回震荡、重画停不下来；
+                        故以完整区域为基准，把滚动条要占的空间预留出来，迭代到滚动条出现/消失的判定稳定为止。
+                    '''
+                    sbar = max(self.vsdxView.verticalScrollBar().sizeHint().width(), 12)
                     availW, availH = fullW, fullH
                     for _ in range(3):
-                        s = min((availW - 2) / boxW, (availH - 2) / boxH) * self.packZoom   # 留 2px 余量，避免正好相等
-                        availW = fullW - (sbar if boxH * s > availH else 0)     # 竖直方向溢出：竖滚动条占宽
-                        availH = fullH - (sbar if boxW * s > availW else 0)     # 水平方向溢出：横滚动条占高
-                    view.setTransform(QtGui.QTransform().scale(s, s))
-                    view.centerOn(anchor if anchor is not None else center)
+                        scale = min((availW - 2) / boxW, (availH - 2) / boxH) * self.viewZoom   # 留 2px 余量，避免正好相等
+                        availW = fullW - (sbar if boxH * scale > availH else 0)     # 竖直方向溢出：竖滚动条占宽
+                        availH = fullH - (sbar if boxW * scale > availW else 0)     # 水平方向溢出：横滚动条占高
+                    self.vsdxView.setTransform(QtGui.QTransform().scale(scale, scale))
+                    self.vsdxView.centerOn(anchor if anchor is not None else center)
                 return
 
             if not self.win.cmbPack.currentText():
-                text = f'package/{self.win.cmbMCU.currentText()}/ 目录下没有封装数据文件'
+                error = f'package/{self.win.cmbMCU.currentText()}/ 目录下没有封装数据文件'
             elif not self.packName:
-                text = f'无法读取 {self.win.cmbPack.currentText()}.txt 第一行的封装名称'
+                error = f'无法读取 {self.win.cmbPack.currentText()}.txt 第一行的封装名称'
             else:
-                text = f'缺少 package/package/{self.packName}.vsdx'
+                error = f'缺少 package/package/{self.packName}.vsdx'
 
-            self.packView.resetTransform()                     # 别延用上个封装的缩放，否则提示文字被放大、滚动条常驻
+            self.vsdxView.resetTransform()
             scene.setSceneRect(0, 0, w, h)
-            item = scene.addSimpleText(text)
+            item = scene.addSimpleText(error)
             item.setBrush(QtGui.QBrush(QtCore.Qt.gray))
             item.setPos((w - item.boundingRect().width()) / 2, (h - item.boundingRect().height()) / 2)
 
@@ -445,44 +463,18 @@ class PinConfigPage(QtCore.QObject):
             self._drawing = False
 
     @staticmethod
-    def loadPortFuncs(path):
-        '''解析 port.h 中各引脚的可选功能，返回 {引脚名: [功能, ...]}。
-
-        形如 #define PORTC_PIN5_I2C1_SCL 的宏 → 引脚 PC5 的功能 I2C1_SCL。
+    def parsePinFuncs(path):
+        ''' 从 SWM341_port.h 中解析出各引脚的可选功能，返回 {引脚名称: [功能, ...]}。
+            形如 PORTC_PIN5_I2C1_SCL 的宏解析出 PC5: I2C1_SCL。
         '''
         funcs = {}
         try:
-            with open(path, encoding='utf-8', errors='ignore') as f:
-                for m in re.finditer(r'\bPORT([A-Z]+)_PIN(\d+)_([A-Z0-9_]+)', f.read()):
-                    pin = 'P%s%s' % (m.group(1), m.group(2))
-                    if m.group(3) not in funcs.setdefault(pin, []):
-                        funcs[pin].append(m.group(3))
+            with open(path, encoding='utf-8', errors='ignore') as cf:
+                for m in re.finditer(r'\bPORT([A-Z]+)_PIN(\d+)_([A-Z0-9_]+)', cf.read()):
+                    pname = 'P%s%s' % (m.group(1), m.group(2))
+                    if m.group(3) not in funcs.setdefault(pname, []):
+                        funcs[pname].append(m.group(3))
         except OSError:
             pass
+
         return funcs
-
-    def popupPinFuncs(self, num, globalPos):
-        '''在点击处弹出引脚的功能列表（来自 <MCU>_port.h），选中后引脚文字换成该功能。'''
-        name = self.packPins.get(num, '')
-        funcs = self.portFuncs.get(name)
-        if not funcs:
-            return
-
-        menu = QtWidgets.QMenu(self.win)
-        act = menu.addAction(name)
-        act.setEnabled(False)                          # 首项为引脚名，作为标题不可选
-        for f in funcs:
-            menu.addAction(f, lambda f=f: self.setPinFunc(num, f))
-        sel = self.packSel.get(num, 'GPIO')            # 当前功能；未选过时即默认的 GPIO
-        if sel in funcs:
-            font = menu.actions()[funcs.index(sel) + 1].font()
-            font.setBold(True)
-            menu.actions()[funcs.index(sel) + 1].setFont(font)
-        menu.exec_(globalPos)
-
-    def setPinFunc(self, num, func):
-        if func == 'GPIO':                             # GPIO 即默认状态：显示引脚名（黑色）
-            self.packSel.pop(num, None)
-        else:
-            self.packSel[num] = func
-        self.drawPack(keepView=True)     # 用户正看着这个位置选功能，重画后视口不跳回芯片中心

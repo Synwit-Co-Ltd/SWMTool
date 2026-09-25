@@ -35,10 +35,10 @@ class SWMTool(QWidget):
         self.setWindowTitle('%s %s' %(self.windowTitle(), 'v1.3.9'))
         
         self.tabMain.tabBar().setVisible(False)     # 通过 ComboBox 切换页面
-        
-        self.initSetting()
 
-        self.pinConfig = PinConfigPage(self)
+        self.pinPage = PinConfigPage(self)
+
+        self.initSetting()
 
         self.on_tabMain_currentChanged(self.tabMain.currentIndex())
 
@@ -69,6 +69,8 @@ class SWMTool(QWidget):
 
     @pyqtSlot(str)
     def on_cmbMCU_currentIndexChanged(self, mcu):
+        self.pinPage.portFuncs = self.pinPage.loadPortFuncs(os.path.join('package', mcu, mcu + '_port.h'))
+
         self.cmbPack.clear()
         self.cmbPack.addItems(sorted(name[:-4] for name in os.listdir(f'package/{mcu}') if name.endswith('.txt')))
 
@@ -127,7 +129,15 @@ class SWMTool(QWidget):
 
     @pyqtSlot(int)
     def on_cmbPage_currentIndexChanged(self, idx):
-        self.tabMain.setCurrentIndex(self.cmbPage.itemData(idx))
+        page = self.cmbPage.itemData(idx)
+        self.tabMain.setCurrentIndex(page)
+
+        if page == 0:
+            QtCore.QTimer.singleShot(0, self.pinPage.drawPack)      # 等页面显示、视图取得实际尺寸后再绘制
+
+    @pyqtSlot(int)
+    def on_cmbPack_currentIndexChanged(self, idx):
+        self.pinPage.onPackChanged(self.cmbPack.currentText())
 
     @pyqtSlot(int)
     def on_tabMain_currentChanged(self, page):
@@ -152,18 +162,19 @@ class SWMTool(QWidget):
             self.linPinPath.setText(path)
 
             with open(path, 'r') as csvf:
-                if csvf.readline().strip() != self.cmbPack.currentText():
-                    QMessageBox.critical(self, '错误', '配置文件记录的封装与当前选择的封装不一致')
+                package = csvf.readline().strip()
+                if package != self.cmbPack.currentText():
+                    QMessageBox.critical(self, '错误，试图加载其他封装的引脚配置', f'配置文件记录的封装（{package}）与当前选择的封装（{self.cmbPack.currentText()}）不一致')
                     return
 
                 packSel = {}
                 for line in csvf:
                     fields = [field.strip() for field in line.strip().split(',')]
-                    if len(fields) == 3 and fields[0].isdigit() and int(fields[0]) in self.pinConfig.packPins:
+                    if len(fields) == 3 and fields[0].isdigit() and int(fields[0]) in self.pinPage.packPins:
                         packSel[int(fields[0])] = fields[2]
 
-                self.pinConfig.packSel = packSel    # 加载即整体替换当前的选择
-                self.pinConfig.drawPack()
+                self.pinPage.packSel = packSel    # 加载即整体替换当前的选择
+                self.pinPage.drawPack()
 
     @pyqtSlot()
     def on_btnPinSave_clicked(self):
@@ -174,14 +185,14 @@ class SWMTool(QWidget):
             with open(path, 'w') as csvf:
                 csvf.write(f'{self.cmbPack.currentText()}\n\n')
 
-                for num, func in sorted(self.pinConfig.packSel.items()):     # 功能不为 GPIO 的引脚
-                    csvf.write(f'{num}, {self.pinConfig.packPins[num]}, {func}\n')
+                for num, func in sorted(self.pinPage.packSel.items()):     # 功能不为 GPIO 的引脚
+                    csvf.write(f'{num}, {self.pinPage.packPins[num]}, {func}\n')
 
     @pyqtSlot()
     def on_btnPinGen_clicked(self):
         pins = []
-        for num, func in self.pinConfig.packSel.items():
-            label = self.pinConfig.packPins[num]        # PC5
+        for num, func in self.pinPage.packSel.items():
+            label = self.pinPage.packPins[num]          # PC5
             port = label[1:].rstrip('0123456789')       #  C
             pnum = label[1 + len(port):]                #   5
             pins.append((port, int(pnum), func))

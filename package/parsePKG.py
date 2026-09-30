@@ -39,8 +39,10 @@ CHINESE = re.compile(r'[\u4e00-\u9fff]')
 ''' 格式二的列名去掉数字和符号后剩下的字母，用来和型号名比对：列名 “VET7/6” → “VET”、“1CET7” → “CET”。 '''
 COL_LETTERS = re.compile(r'[^A-Za-z]')
 
-''' 管脚名称省略 P 前缀时补回：A15 → PA15、C0 → PC0；VSS、VDD、XO 等特殊管脚不受影响。 '''
-PORT_PIN = re.compile(r'^([A-F])(\d{1,2})$')
+''' 管脚名称只写了端口字母和位数时补回 P 前缀：A15 → PA15、C0 → PC0，SWM320/341 系列还有 N2 → PN2、
+    M2 → PM2、P19 → PP19；VSS、VDD、XO、XHIN 等多字母的管脚名不受影响。
+'''
+PORT_PIN = re.compile(r'^([A-Z])(\d{1,2})$')
 
 ''' 下一个小节的标题，如 “5.2 SWM221EBS7”；管脚表跨页读到它即结束。 '''
 SECTION = re.compile(r'^\s*\d+\.\d+\s+\S')
@@ -166,17 +168,19 @@ def readSharedPins(doc, page, chip, count):
 
 	colX = [sum(c) / len(c) for c in textCols([(f[2] + f[3]) / 2 for f in headers
 	                                           if f[3] < 200 and not CHINESE.search(f[1])])]
-	colName = [''.join(t for y, t, x0, x1 in sorted(firstHead) if abs((x0 + x1) / 2 - x) < 17)
-	           for x in colX]					# 竖排的列名按 y 从小到大（从下往上）读
+	colName = [''.join(t for y, t, x0, x1 in sorted(firstHead)
+	                   if abs((x0 + x1) / 2 - x) < 17 and not CHINESE.search(t)) for x in colX]
 
 	rows = []									# [页, 管脚号单元格的中心 y, {列: 管脚号}, [管脚名片段]]
 	for p, body in pages:
-		for y, fs in textRows(body):
+		''' 只拿各列里数字/斜杠的片段来分行：可复用功能、描述等列是好几行文字，混在一起会把行距搅乱。 '''
+		cellFrags = [f for f in body if PIN_CELL.fullmatch(f[1])
+		             and min(abs((f[2] + f[3]) / 2 - x) for x in colX) < 17]
+		for y, fs in textRows(cellFrags, 6.0):
 			cell = {}
 			for fy, t, x0, x1 in fs:
-				mid = (x0 + x1) / 2
 				for i, x in enumerate(colX):
-					if abs(mid - x) < 17 and PIN_CELL.fullmatch(t):
+					if abs((x0 + x1) / 2 - x) < 17:
 						cell.setdefault(i, []).append((x0, fy, t))
 
 			if len(cell) >= 2:					# 可复用功能、描述等列的行没有管脚号，不予理会
@@ -187,9 +191,10 @@ def readSharedPins(doc, page, chip, count):
 	funcX = [f[2] for p, body in pages for f in body if f[2] > numMax and f[1].endswith('/')]
 	funcMin = min(funcX) if funcX else numMax + 120		# 可复用功能列的左界，名称列到它为止
 	for p, body in pages:
+		rowsP = [r for r in rows if r[0] == p]
 		for fy, t, x0, x1 in body:				# 管脚名称：管脚号列右边、可复用功能列左边的片段
-			if x0 > numMax and x1 < funcMin + 1 and t not in ('——', '/') and not CHINESE.search(t):
-				near = min([r for r in rows if r[0] == p], key=lambda r: abs(r[1] - fy))
+			if rowsP and x0 > numMax and x1 < funcMin + 1 and t not in ('——', '/') and not CHINESE.search(t):
+				near = min(rowsP, key=lambda r: abs(r[1] - fy))
 				if abs(near[1] - fy) < 12:		# 换行的管脚名（如 EFLASHV+S）按行就近附到同一行
 					near[3].append((x0, t))
 
@@ -219,10 +224,14 @@ def parsePKG(pdf, page, pkg, dir, chip):
 	count = int(re.search(r'\d+\s*$', pkg).group())		# 封装名末尾的数字即管脚数，如 LQFP-48 → 48
 
 	with pdfium.PdfDocument(pdf) as doc:
-		if isShared(doc, page):				# 各个封装的管脚号并排在同一张表里（SWM341 手册）
+		if isShared(doc, page):				# 各个封装的管脚号并排在同一张表里（SWM320、SWM341 手册）
 			pins = readSharedPins(doc, page, chip, count)
 		else:								# 一个封装一张管脚表（SWM221 手册）
 			pins = readPins(doc, page, count)
+
+	nums = sorted(pins)
+	if nums != list(range(1, len(nums) + 1)):
+		raise ValueError(f'{pdf} 第 {page} 页的 {pkg} 管脚号不是从 1 开始的连续号（读到 {nums}），请确认页码')
 
 	if len(pins) != count:
 		raise ValueError(f'{pdf} 第 {page} 页的 {pkg} 解析到 {len(pins)} 个管脚（应为 {count} 个），请确认页码')
@@ -234,23 +243,30 @@ def parsePKG(pdf, page, pkg, dir, chip):
 			txtf.write('%2d: %s\n' % (num, name))
 
 
-if __name__ == '__main__':
-	# SWM341 手册把各个封装的管脚号并排放在 5.8“管脚定义”表里，所以型号不同、页码相同（第 24 页起）
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-100', 'SWM341', 'SWM341VET7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-64',  'SWM341', 'SWM341RET7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-48',  'SWM341', 'SWM341CET7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-100', 'SWM341', 'SWM34SVET6')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-64',  'SWM341', 'SWM34SRET6')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-48',  'SWM341', 'SWM34SCET6')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'QFN-80',  'SWM341', 'SWM34SMEU6')
 
-	sys.exit()
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 19, 'LQFP-48', 'SWM221', 'SWM221CBT7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 22, 'SSOP-24', 'SWM221', 'SWM221EBS7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 24, 'QFN-32', 'SWM221', 'SWM221KBU7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 27, 'SSOP-24', 'SWM221', 'SWM22PE8S7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 29, 'QFN-40', 'SWM221', 'SWM22DD8U7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 32, 'SSOP-28', 'SWM221', 'SWM22PG8S7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 34, 'SSOP-28', 'SWM221', 'SWM221GBS7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 39, 'QFN-32', 'SWM221', 'SWM22DK8U7')
-	parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 42, 'QFN-40', 'SWM221', 'SWM221DBU7')
+if __name__ == '__main__':
+	if False:			# SWM221 手册：每个封装一个小节、一张管脚表
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 19, 'LQFP-48', 'SWM221', 'SWM221CBT7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 22, 'SSOP-24', 'SWM221', 'SWM221EBS7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 24, 'QFN-32',  'SWM221', 'SWM221KBU7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 27, 'SSOP-24', 'SWM221', 'SWM22PE8S7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 29, 'QFN-40',  'SWM221', 'SWM22DD8U7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 32, 'SSOP-28', 'SWM221', 'SWM22PG8S7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 34, 'SSOP-28', 'SWM221', 'SWM221GBS7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 39, 'QFN-32',  'SWM221', 'SWM22DK8U7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 42, 'QFN-40',  'SWM221', 'SWM221DBU7')
+
+	if True:			# SWM320 手册：各个封装的管脚号并排放在 5.5“管脚描述”表里，故页码相同（第 18 页起）
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-48',  'SWM320', 'SWM320CET7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-64',  'SWM320', 'SWM320RET7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-100', 'SWM320', 'SWM320VET7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-64',  'SWM320', 'SWM32SRET6')
+
+	if False:			# SWM341 手册：各个封装的管脚号并排放在 5.8“管脚定义”表里，故页码相同（第 24 页起）
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-100', 'SWM341', 'SWM341VET7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-64',  'SWM341', 'SWM341RET7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-48',  'SWM341', 'SWM341CET7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-100', 'SWM341', 'SWM34SVET6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-64',  'SWM341', 'SWM34SRET6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'LQFP-48',  'SWM341', 'SWM34SCET6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM341数据手册V1.40.pdf', 24, 'QFN-80',   'SWM341', 'SWM34SMEU6')

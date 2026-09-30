@@ -33,8 +33,8 @@ PIN_ROW_NO_NUM = re.compile(r'^\s*(\S+)\s+' + PIN_TYPE + r'\s+\S+')
 ''' 格式二里一个管脚号单元格的内容：数字，或者“/”（该封装没有这个管脚）。 '''
 PIN_CELL = re.compile(r'(?:\d{1,3}|/)')
 
-''' 汉字：管脚名称列里只有字母数字，用有没有汉字来排除表头、说明文字。 '''
-CHINESE = re.compile(r'[\u4e00-\u9fff]')
+''' 汉字和中文标点：管脚名称列里只有字母数字，用它排除表头文字、说明文字（含全角的 ，：； 等）。 '''
+CHINESE = re.compile(r'[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]')
 
 ''' 格式二的列名去掉数字和符号后剩下的字母，用来和型号名比对：列名 “VET7/6” → “VET”、“1CET7” → “CET”。 '''
 COL_LETTERS = re.compile(r'[^A-Za-z]')
@@ -52,12 +52,24 @@ def textLines(doc, page):
 	return doc[page].get_textpage().get_text_range().splitlines()
 
 
-def isShared(doc, page):
-	''' 判断本页所在的小节是哪种版式：共用表的表头里有“描述”列，
-	    一个封装一张表的那种表头是“可复用功能/备注”（没有“描述”）。
+def findShared(doc, page, span=8):
+	''' 找共用管脚表表头所在的那一页：共用表只有第一页有表头（含独立的“描述”列），
+	    续页上没有；给的是续页时按前后 span 页找一下。
 	'''
-	text = doc[page].get_textpage().get_text_range()
-	return '描述' in text and '管脚名称' in text
+	for d in range(span):
+		for p in (page - d, page + d):
+			if 0 <= p < len(doc) and isShared(doc, p):
+				return p
+
+	return None
+
+
+def isShared(doc, page):
+	''' 判断本页所在的小节是哪种版式：多个封装共用一张管脚表时，表头里有一个独立的“描述”单元格；
+	    一个封装一张表的那种表头是“可复用功能/备注”，没有“描述”列。
+	    （SWM330 那种表的表题里有“管脚描述”四个字，但那是整行文字，不是独立的“描述”单元格。）
+	'''
+	return any(line.strip() == '描述' for line in textLines(doc, page))
 
 
 def readPins(doc, page, count):
@@ -93,8 +105,9 @@ def readPins(doc, page, count):
 
 
 def charFragments(doc, page):
-	''' 一页的文字片段 [(y, 文字, 左 x, 右 x), ...]：把字符按坐标合并成片段，
-	    上下相距 6 磅内、左右挨着的字符算一个片段（单元格里竖排的数字 “27” 会拆成上下两个字符）。
+	''' 一页的文字片段 [(y, 文字, 左 x, 右 x, 字序号), ...]：把字符按坐标合并成片段，
+	    上下相距 6 磅内、左右挨着的字符算一个片段（单元格里竖排的数字 “27” 会拆成上下两个字符）；
+	    字序号是该片段第一个字符在 PDF 文字流里的位置，用来按作者排版的顺序读表格。
 	'''
 	tp = doc[page].get_textpage()
 
@@ -104,7 +117,7 @@ def charFragments(doc, page):
 		left, bottom, right, top = box if isinstance(box, tuple) else (box.left, box.bottom, box.right, box.top)
 		text = tp.get_text_range(i, 1)
 		if text.strip():
-			chars.append([left, bottom, right, text])
+			chars.append([left, bottom, right, text, i])
 
 	chars.sort(key=lambda c: (-round(c[1] / 8.0), c[0]))
 
@@ -113,10 +126,11 @@ def charFragments(doc, page):
 		if frags and abs(frags[-1][0] - c[1]) < 6.0 and -8.0 < c[0] - frags[-1][2] < 1.5:
 			frags[-1][1] += c[3]
 			frags[-1][2] = max(frags[-1][2], c[2])
+			frags[-1][4] = min(frags[-1][4], c[4])
 		else:
-			frags.append([c[1], c[3], c[2], c[0]])
+			frags.append([c[1], c[3], c[2], c[0], c[4]])
 
-	return [(y, re.sub(r'\s+', '', text), x0, x1) for y, text, x1, x0 in frags]
+	return [(y, re.sub(r'\s+', '', text), x0, x1, i) for y, text, x1, x0, i in frags]
 
 
 def textRows(frags, gap=9.0):
@@ -145,14 +159,80 @@ def textCols(values, gap=10.0):
 	return cols
 
 
+def sharedRowsByXY(pages, colX, numMax, funcMin):
+	''' 按坐标分行：y 相近（9 磅内）的各列管脚号算一行，再按 y 就近把管脚名配到行上。 '''
+	rows = []
+	for p, body in pages:
+		cellFrags = [f for f in body if PIN_CELL.fullmatch(f[1])
+		             and min(abs((f[2] + f[3]) / 2 - x) for x in colX) < 17]
+		for y, fs in textRows(cellFrags, 9.0):
+			cell = {}
+			for fy, t, x0, x1, i in fs:
+				for c, x in enumerate(colX):
+					if abs((x0 + x1) / 2 - x) < 17:
+						cell.setdefault(c, []).append((x0, fy, t))
+			if len(cell) >= 2:
+				rows.append([p, sum(fy for v in cell.values() for x, fy, t in v) / sum(map(len, cell.values())),
+				             cell, []])
+
+	for p, body in pages:
+		rowsP = [r for r in rows if r[0] == p]
+		for fy, t, x0, x1, i in body:
+			if rowsP and numMax < x0 and x1 < funcMin + 1 and t not in ('——', '/') and not CHINESE.search(t):
+				near = min(rowsP, key=lambda r: abs(r[1] - fy))
+				if abs(near[1] - fy) < 12:		# 换行的管脚名（如 EFLASHV+S）按行就近附到同一行
+					near[3].append((x0, t))
+
+	return rows
+
+
+def sharedRowsByText(pages, colX, numMax, funcMin):
+	''' 按 PDF 文字流的顺序分行：表里一行的内容是“各列管脚号 + 管脚名称”，作者就是照这个顺序排版的，
+	    所以读到管脚名就说明本行结束，之后再读到管脚号（或本列的管脚号已经有了）就是下一行。
+	    个别单元格的纵向位置偏差较大（比同行其它格低十几磅，如 SWM260 表里 PBT7 第 30 脚），
+	    按坐标分行会把它算到下一行去，这种表只能用文字顺序读。
+	'''
+	rows = []
+	for p, body in pages:
+		row = None
+		for f in sorted(body, key=lambda f: f[4]):
+			fy, t, x0, x1 = f[:4]
+			col = [i for i, x in enumerate(colX) if abs((x0 + x1) / 2 - x) < 17]
+			if col and PIN_CELL.fullmatch(t):
+				if row is None or row[3] or col[0] in row[2]:
+					row = [p, fy, {}, []]
+					rows.append(row)
+				row[2].setdefault(col[0], []).append((x0, fy, t))
+			elif row is not None and numMax < x0 and x1 < funcMin + 1 and t not in ('——', '/') and not CHINESE.search(t):
+				row[3].append((x0, t))			# 管脚名；换行的名称（如 ADC0_VREFP）会分几个片段，都归到本行
+
+	return rows
+
+
+def sharedColPins(rows, colX):
+	''' 把分行结果整理成 [ {管脚号: [管脚名称]} per 封装列 ]；没有管脚名的行（表头等）跳过。 '''
+	colPins = [{} for _ in colX]
+	for row in rows:
+		if not row[3]:
+			continue
+		name = ''.join(t for x, t in sorted(row[3]))
+		for i, cell in row[2].items():
+			value = ''.join(t for x, fy, t in sorted(cell))
+			if value.isdigit() and int(value):
+				colPins[i][int(value)] = [name]	# 与格式一同样记录成名称列表（表里一个管脚只有一个名称）
+
+	return colPins
+
+
 def readSharedPins(doc, page, chip, count):
 	''' 格式二：各个封装的管脚号并排在一张表里，一个封装占一列。表头是竖排的列名（VET7/6、RET7/6 …），
 	    管脚号和管脚名称排在同一行，没法按行首的文字匹配，只能按字符坐标把表格还原成行列后再读。
+	    先按坐标分行，对不上管脚数时再按文字流顺序分行（两种办法互为补充，见上面两个函数）。
 	'''
 	if not count:
 		raise ValueError('共用管脚表按管脚数找封装列，封装名末尾要带上管脚数（如 LQFP-64）')
 
-	headers, firstHead, pages = [], [], []
+	headers, pages = [], []
 	for p in range(page, len(doc)):
 		frags = charFragments(doc, p)
 
@@ -161,60 +241,39 @@ def readSharedPins(doc, page, chip, count):
 
 		band = [f[0] for f in frags if '描述' in f[1] or '管脚名称' in f[1]]
 		band = (min(band) - 34, max(band) + 8) if band else (0, 0)		# 表头那一带（含竖排的列名）
-		heads = [f for f in frags if band[0] <= f[0] <= band[1]]
-		headers += heads
-		firstHead = firstHead or heads		# 列名只看第一页，后面各页的表头是重复的
-		pages.append((p, [f for f in frags if not band[0] <= f[0] <= band[1]]))
+		headers += [f for f in frags if band[0] <= f[0] <= band[1]]		# 列名只看有表头的那几页
+		pages.append((p, frags))			# 表体就是整页：数字/斜杠的单元格只有表格里有，不会认错
 
-	colX = [sum(c) / len(c) for c in textCols([(f[2] + f[3]) / 2 for f in headers
-	                                           if f[3] < 200 and not CHINESE.search(f[1])])]
-	colName = [''.join(t for y, t, x0, x1 in sorted(firstHead)
-	                   if abs((x0 + x1) / 2 - x) < 17 and not CHINESE.search(t)) for x in colX]
-
-	rows = []									# [页, 管脚号单元格的中心 y, {列: 管脚号}, [管脚名片段]]
-	for p, body in pages:
-		''' 只拿各列里数字/斜杠的片段来分行：可复用功能、描述等列是好几行文字，混在一起会把行距搅乱。 '''
-		cellFrags = [f for f in body if PIN_CELL.fullmatch(f[1])
-		             and min(abs((f[2] + f[3]) / 2 - x) for x in colX) < 17]
-		for y, fs in textRows(cellFrags, 6.0):
-			cell = {}
-			for fy, t, x0, x1 in fs:
-				for i, x in enumerate(colX):
-					if abs((x0 + x1) / 2 - x) < 17:
-						cell.setdefault(i, []).append((x0, fy, t))
-
-			if len(cell) >= 2:					# 可复用功能、描述等列的行没有管脚号，不予理会
-				rows.append([p, sum(fy for v in cell.values() for x, fy, t in v) / sum(map(len, cell.values())),
-				             {i: ''.join(t for x, fy, t in sorted(v)) for i, v in cell.items()}, []])
+	heads = [f for f in headers if f[3] < 200 and not CHINESE.search(f[1])
+	         and not PIN_CELL.fullmatch(f[1])]		# 表头里的列名（竖排文字）
+	colX = [sum(c) / len(c) for c in textCols([(f[2] + f[3]) / 2 for f in heads])]
+	colName = [''.join(t for y, t, x0, x1, i in sorted(heads)
+	                   if abs((x0 + x1) / 2 - x) < 17) for x in colX]
 
 	numMax = colX[-1] + 10						# 管脚号列的右界：最后一列的中心再往右一个单元格
 	funcX = [f[2] for p, body in pages for f in body if f[2] > numMax and f[1].endswith('/')]
 	funcMin = min(funcX) if funcX else numMax + 120		# 可复用功能列的左界，名称列到它为止
-	for p, body in pages:
-		rowsP = [r for r in rows if r[0] == p]
-		for fy, t, x0, x1 in body:				# 管脚名称：管脚号列右边、可复用功能列左边的片段
-			if rowsP and x0 > numMax and x1 < funcMin + 1 and t not in ('——', '/') and not CHINESE.search(t):
-				near = min(rowsP, key=lambda r: abs(r[1] - fy))
-				if abs(near[1] - fy) < 12:		# 换行的管脚名（如 EFLASHV+S）按行就近附到同一行
-					near[3].append((x0, t))
 
-	colPins = [{} for _ in colX]
-	for row in rows:
-		if not row[3]:
-			continue							# 没有管脚名的行（小节标题、跨页残留的表头等）跳过
-		name = ''.join(t for x, t in sorted(row[3]))
-		for i, v in row[2].items():
-			if v.isdigit() and int(v):
-				colPins[i][int(v)] = [name]		# 与格式一同样记录成名称列表（表里一个管脚只有一个名称）
+	rows = sharedRowsByXY(pages, colX, numMax, funcMin)
 
+	''' 表里个别单元格的纵向位置会偏得较远（如 SWM260 表里 PBT7 第 30 脚比同行其它格低 16 磅），
+	    按坐标分行会把它算到相邻行去；行内管脚号上下差超过 5 磅就说明有这种情况，改用文字流顺序分行。
+	'''
+	spread = [max(fy for v in r[2].values() for x, fy, t in v) - min(fy for v in r[2].values() for x, fy, t in v)
+	          for r in rows if r[2]]
+	if spread and max(spread) > 5.0:
+		rows = sharedRowsByText(pages, colX, numMax, funcMin)
+
+	colPins = sharedColPins(rows, colX)
 	cols = [i for i in range(len(colX)) if len(colPins[i]) == count]
-	if len(cols) > 1:							# 管脚数相同的列（如 CET7、SCET6 都是 48 脚）用型号名挑
-		cols = [i for _, i in sorted(((len(COL_LETTERS.sub('', colName[i])), i) for i in cols
-		                              if COL_LETTERS.sub('', colName[i]) in chip), reverse=True)] or cols
 
 	if not cols:
 		cols = '、'.join('%s(%d)' % (n, len(colPins[i])) for i, n in enumerate(colName))
 		raise ValueError(f'第 {page} 页起的管脚定义表里没有 {count} 个管脚的封装列（{cols}），请确认封装名')
+
+	if len(cols) > 1:							# 管脚数相同的列（如 CET7、SCET6 都是 48 脚）用型号名挑
+		cols = [i for _, i in sorted(((len(COL_LETTERS.sub('', colName[i])), i) for i in cols
+		                              if COL_LETTERS.sub('', colName[i]) in chip), reverse=True)] or cols
 
 	return colPins[cols[0]]
 
@@ -224,10 +283,18 @@ def parsePKG(pdf, page, pkg, dir, chip):
 	count = int(re.search(r'\d+\s*$', pkg).group())		# 封装名末尾的数字即管脚数，如 LQFP-48 → 48
 
 	with pdfium.PdfDocument(pdf) as doc:
-		if isShared(doc, page):				# 各个封装的管脚号并排在同一张表里（SWM320、SWM341 手册）
+		if isShared(doc, page):				# 各个封装的管脚号并排在同一张表里（SWM260/320/341 手册）
 			pins = readSharedPins(doc, page, chip, count)
-		else:								# 一个封装一张管脚表（SWM221 手册）
+		else:								# 一个封装一张管脚表（SWM221/330 手册）
 			pins = readPins(doc, page, count)
+
+			if len(pins) != count:			# 给的可能是共用表的续页（上面没有表头），回到表头那一页重读
+				table = findShared(doc, page)
+				if table is not None:
+					try:
+						pins = readSharedPins(doc, table, chip, count)
+					except ValueError:
+						pass
 
 	nums = sorted(pins)
 	if nums != list(range(1, len(nums) + 1)):
@@ -256,7 +323,12 @@ if __name__ == '__main__':
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 39, 'QFN-32',  'SWM221', 'SWM22DK8U7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 42, 'QFN-40',  'SWM221', 'SWM221DBU7')
 
-	if True:			# SWM320 手册：各个封装的管脚号并排放在 5.5“管脚描述”表里，故页码相同（第 18 页起）
+	if True:
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM260数据手册V2.05.pdf', 16, 'LQFP-48',  'SWM260', 'SWM260CBT7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM260数据手册V2.05.pdf', 16, 'LQFP-44',  'SWM260', 'SWM260PBT7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM260数据手册V2.05.pdf', 16, 'LQFP-32',  'SWM260', 'SWM260KBT7')
+
+	if False:			# SWM320 手册：各个封装的管脚号并排放在 5.5“管脚描述”表里，故页码相同（第 18 页起）
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-48',  'SWM320', 'SWM320CET7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-64',  'SWM320', 'SWM320RET7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-100', 'SWM320', 'SWM320VET7')

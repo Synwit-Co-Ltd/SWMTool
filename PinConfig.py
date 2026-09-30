@@ -139,6 +139,7 @@ class VsdxPage:
         ''' 将 Visio page 中的 shapes 画进场景：几何画成矢量路径，编号等文字按 Visio 的文字块规则摆放 '''
         DPI = 96.0      # 场景坐标每英寸像素数，只决定文字/线宽的基准，整体仍会适配视图
         GAP = 6.0       # 编号框与文字的间距（像素）
+        EDGE_TOL = 2.0  # 判定焊盘是否处于焊盘包围盒左右/上下极值上的容差（像素）
 
         # 文档样式表里与显示相关的默认值：形状未给出时按此渲染
         LINE_WEIGHT = 0.01041666666666667   # 英寸（0.75 pt）
@@ -239,6 +240,17 @@ class VsdxPage:
 
         cx = sum(pad[1] + pad[3] for pad in pads) / (2 * len(pads)) if pads else 0      # centre x
         cy = sum(pad[2] + pad[4] for pad in pads) / (2 * len(pads)) if pads else 0
+
+        ''' 焊盘包围盒的左右/上下极值，用来判断焊盘在封装的哪一边：
+            在左右极值上的是左右边的焊盘（文字横排），只有处在上下极值上的才是上/下边的焊盘（文字竖排）。
+            只按“离中心横向更远就是左右边”判断的话，两列焊盘的封装（如 SSOP-24/28）里靠近顶端、底端的焊盘
+            （纵向偏移大于半个封装宽度）会被误判成上/下边，文字被竖排，所以这里先判左右、再判上下。
+        '''
+        edgeL = min((pad[1] + pad[3]) / 2 for pad in pads) if pads else 0
+        edgeR = max((pad[1] + pad[3]) / 2 for pad in pads) if pads else 0
+        edgeT = min((pad[2] + pad[4]) / 2 for pad in pads) if pads else 0
+        edgeB = max((pad[2] + pad[4]) / 2 for pad in pads) if pads else 0
+
         for pnum, x0, y0, x1, y1, shape in pads:
             pname = packPins.get(pnum)
             if not pname:
@@ -264,21 +276,30 @@ class VsdxPage:
             fm = QtGui.QFontMetrics(font)
             tw, th = fm.horizontalAdvance(text), fm.height()
 
-            if abs((x0 + x1) / 2 - cx) > abs((y0 + y1) / 2 - cy):   # 离中心横向更远：左右边
-                if (x0 + x1) / 2 < cx:      # 左边：右端贴编号、垂直居中
-                    item.setPos(x0 - GAP - tw, (y0 + y1) / 2 - th / 2)
-                    bRect[0] = bRect[0].united(QtCore.QRectF(x0 - GAP - tw, (y0 + y1) / 2 - th / 2, tw, th))
+            px, py = (x0 + x1) / 2, (y0 + y1) / 2   # 焊盘中心
+
+            if   min(px - edgeL, edgeR - px) <= EDGE_TOL:       # 处于左右极值上：左右边的焊盘
+                leftRight = True
+            elif min(py - edgeT, edgeB - py) <= EDGE_TOL:       # 处于上下极值上：上/下边的焊盘
+                leftRight = False
+            else:                                               # 都不在极值上（图形不规范）：沿用离中心远近判断
+                leftRight = abs(px - cx) > abs(py - cy)
+
+            if leftRight:
+                if px < cx:                 # 左边：右端贴编号、垂直居中
+                    item.setPos(x0 - GAP - tw, py - th / 2)
+                    bRect[0] = bRect[0].united(QtCore.QRectF(x0 - GAP - tw, py - th / 2, tw, th))
                 else:                       # 右边：左端贴编号、垂直居中
-                    item.setPos(x1 + GAP, (y0 + y1) / 2 - th / 2)
-                    bRect[0] = bRect[0].united(QtCore.QRectF(x1 + GAP, (y0 + y1) / 2 - th / 2, tw, th))
+                    item.setPos(x1 + GAP, py - th / 2)
+                    bRect[0] = bRect[0].united(QtCore.QRectF(x1 + GAP, py - th / 2, tw, th))
             else:                                                   # 顶/底边：竖排，自下而上读
                 item.setRotation(-90)
-                if (y0 + y1) / 2 < cy:      # 顶边：末端贴编号、向上延伸
-                    item.setPos((x0 + x1) / 2 - th / 2, y0 - GAP)
-                    bRect[0] = bRect[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y0 - GAP - tw, th, tw))
+                if py < cy:                 # 顶边：末端贴编号、向上延伸
+                    item.setPos(px - th / 2, y0 - GAP)
+                    bRect[0] = bRect[0].united(QtCore.QRectF(px - th / 2, y0 - GAP - tw, th, tw))
                 else:                       # 底边：起端贴编号、向下延伸
-                    item.setPos((x0 + x1) / 2 - th / 2, y1 + GAP + tw)
-                    bRect[0] = bRect[0].united(QtCore.QRectF((x0 + x1) / 2 - th / 2, y1 + GAP, th, tw))
+                    item.setPos(px - th / 2, y1 + GAP + tw)
+                    bRect[0] = bRect[0].united(QtCore.QRectF(px - th / 2, y1 + GAP, th, tw))
 
         return bRect[0], QtCore.QPointF(cx, cy) if pads else bRect[0].center()
 

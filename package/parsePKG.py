@@ -16,9 +16,10 @@ PIN_TYPE = r'(?:I/O|AO|I|O|S|/|——)'
 
 ''' 格式一的管脚表的一行：管脚号 管脚名称 类型 复位后默认功能 可复用功能/备注
     如 “1 C0 I/O PC0”、“5 A15 I/O A15 QSPI0_D0, PWM1A, HALL_IN2”、“48 NC / / 悬空”；
-    表头和“可复用功能”换行后的续行都不以“管脚号 + 管脚名称 + 类型”开头，不予匹配。
+    表头和“可复用功能”换行后的续行都不以“管脚号 + 管脚名称 + 类型”开头，不予匹配；
+    类型后面的“复位后默认功能”可以为空（如 SWM231 的 “14 PVDD S”，描述另起一行），所以后面可有可无。
 '''
-PIN_ROW = re.compile(r'^\s*(\d{1,3})\s+(\S+)\s+' + PIN_TYPE + r'\s+\S+')
+PIN_ROW = re.compile(r'^\s*(\d{1,3})\s+(\S+)\s+' + PIN_TYPE + r'(?:\s|$)')
 
 ''' 管脚号单独占一行：多个管脚名共用一个焊盘时，管脚号居中、单独占一行，
     如 5.2 SWM221EBS7 的 10（B3/B4 共用）、18（A11/A14 共用）。
@@ -49,7 +50,10 @@ TYPE_TAIL = re.compile(r'(?:I/O|AO|I|O|S)$')
 PIN_DIGITS = re.compile(r'[A-Z]+\d+')
 
 ''' 下一个小节的标题，如 “5.2 SWM221EBS7”；管脚表跨页读到它即结束。 '''
-SECTION = re.compile(r'^\s*\d+\.\d+\s+\S')
+SECTION = re.compile(r'^\s*\d+\.\d+\s+(\S.*)$')
+
+''' 目录里的小节标题后面跟着一串点，不是真正的小节标题。 '''
+DOT_LEADER = re.compile(r'\.{4,}')
 
 
 def textLines(doc, page):
@@ -66,6 +70,19 @@ def findShared(doc, page, span=8):
 				return p
 
 	return None
+
+
+def findSection(doc, chip, page, span=40):
+	''' 找 {chip} 型号那一小节标题所在的页（如 “5.4 SWM23PE6S7”）：管脚表就是从这一页或它的下一页开始的，
+	    页码给成了表格的续页时可以靠它找回来。目录里带点线的小节标题不算。找不到就原样返回。
+	'''
+	for p in range(page, max(page - span, -1), -1):
+		for line in textLines(doc, p):
+			title = SECTION.match(line)
+			if title and not DOT_LEADER.search(line) and title.group(1).startswith(chip):
+				return p
+
+	return page
 
 
 def isShared(doc, page):
@@ -316,7 +333,7 @@ def parsePKG(pdf, page, pkg, dir, chip):
 			except ValueError:
 				pins = None					# 其实不是（比如这页还画着封装图），改按一个封装一张表来读
 
-		if pins is None:					# 一个封装一张管脚表（SWM221/330 手册）
+		if pins is None:					# 一个封装一张管脚表（SWM221/231/330 手册）
 			pins = readPins(doc, page, count)
 
 			if len(pins) != count:			# 也可能是共用表的续页（上面没有表头），回到表头那一页重读
@@ -325,9 +342,26 @@ def parsePKG(pdf, page, pkg, dir, chip):
 					try:
 						pins = readSharedPins(doc, table, chip, count)
 					except ValueError:
-						pass
+						pins = readPins(doc, page, count)	# 不是共用表：退回“一个封装一张表”的结果
+
+			if len(pins) != count:			# 页码给成了管脚表的续页时，回到该型号小节的第一页从头读
+				first = findSection(doc, chip, page)
+				if first != page:
+					pins = readPins(doc, first, count)
 
 	nums = sorted(pins)
+
+	''' 手册里偶尔把管脚号印错（如 SWM231 的 SSOP-24 最后一脚印成 25），
+	    表现为比管脚数还大的号多出一个、1 到管脚数里少一个；这时按少的那个号改回来并提示。
+	'''
+	over = [n for n in nums if n > count]
+	holes = [n for n in range(1, count + 1) if n not in pins]
+	if len(nums) == count and len(over) == 1 and len(holes) == 1:
+		print('%s 第 %d 页的 %s：手册里 %d 号印成了 %d 号（%s），已按 %d 号记录'
+		      % (chip, page, pkg, holes[0], over[0], pins[over[0]][0], holes[0]))
+		pins[holes[0]] = pins.pop(over[0])
+		nums = sorted(pins)
+
 	if nums != list(range(1, len(nums) + 1)):
 		raise ValueError(f'{pdf} 第 {page} 页的 {pkg} 管脚号不是从 1 开始的连续号（读到 {nums}），请确认页码')
 
@@ -355,6 +389,12 @@ if __name__ == '__main__':
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 42, 'QFN-40',  'SWM221', 'SWM221DBU7')
 
 	if True:
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM231数据手册_V1.26.pdf', 16, 'SSOP-24',  'SWM231', 'SWM231E6S7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM231数据手册_V1.26.pdf', 19, 'SOP-16',   'SWM231', 'SWM23PQ6M7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM231数据手册_V1.26.pdf', 21, 'QFN-20',   'SWM231', 'SWM231F6U7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM231数据手册_V1.26.pdf', 23, 'SSOP-24',  'SWM231', 'SWM23PE6S7')
+
+	if False:
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM241数据手册V2.90.pdf', 17, 'LQFP-44',  'SWM241', 'SWM241PBT7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM241数据手册V2.90.pdf', 17, 'LQFP-32',  'SWM241', 'SWM241KBT7')
 

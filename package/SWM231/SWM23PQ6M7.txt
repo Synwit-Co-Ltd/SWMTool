@@ -1,0 +1,18 @@
+SOP-16
+
+ 1: HO2
+ 2: LO2
+ 3: HO3
+ 4: LO3
+ 5: VDD
+ 6: PB0
+ 7: PB1
+ 8: VSS
+ 9: PA0
+10: PB9
+11: PB8
+12: PB6
+13: PA1
+14: PVDD
+15: HO1
+16: LO1

@@ -1,0 +1,26 @@
+SSOP-24
+
+ 1: HO2
+ 2: LO2
+ 3: HO3
+ 4: LO3
+ 5: VDD
+ 6: PB2
+ 7: PB0
+ 8: PB1
+ 9: VSS
+10: PA8
+11: PA9
+12: PB5
+13: PB3
+14: PB4
+15: PB6
+16: PB7
+17: PB8
+18: PB9
+19: PA0
+20: PA1
+21: VMP
+22: VM
+23: HO1
+24: LO1

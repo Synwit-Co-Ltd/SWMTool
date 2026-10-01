@@ -56,6 +56,37 @@ SECTION = re.compile(r'^\s*\d+\.\d+\s+(\S.*)$')
 DOT_LEADER = re.compile(r'\.{4,}')
 
 
+def headerName(frags, f):
+	''' 表头那一带里的片段 f 是不是竖排列名的一部分（列名字母部分之外的片段不算）：
+	    列名是一个字一个字竖着摞起来的，其中夹的数字（如 SWM211C8T7 末尾的 7）也属于列名，
+	    但表体里的管脚号单元格不是；靠“同一列里另有字母片段且纵向只隔十来磅”来区分。
+	'''
+	if f[3] >= 200 or CHINESE.search(f[1]):
+		return False
+
+	if not PIN_CELL.fullmatch(f[1]):
+		return True
+
+	return any(g is not f and g[3] < 200 and not CHINESE.search(g[1]) and not PIN_CELL.fullmatch(g[1])
+	           and abs((g[2] + g[3]) / 2 - (f[2] + f[3]) / 2) < 17 and abs(g[0] - f[0]) < 12
+	           for g in frags)
+
+
+def sameModel(name, chip):
+	''' 列名是不是这个型号：列名是竖排文字，读出来的字序可能是乱的（SWM211C8T7 读成 C18T7），
+	    所以除了按“列名里的字母在型号名里连着出现”认，还按“型号名末尾那一段和列名的字符完全一样”认。
+	'''
+	letters = COL_LETTERS.sub('', name)
+	if len(letters) >= 3 and letters in chip:
+		return True
+
+	if len(name) >= 3:
+		tail = chip[-len(name):]
+		return len(tail) == len(name) and sorted(tail) == sorted(name)
+
+	return False
+
+
 def textLines(doc, page):
 	return doc[page].get_textpage().get_text_range().splitlines()
 
@@ -282,14 +313,12 @@ def readSharedPins(doc, page, chip, count):
 
 		pages.append((p, frags))			# 表体就是整页：数字/斜杠的单元格只有表格里有，不会认错
 
-	cols = [f for f in headers if f[3] < 200 and not CHINESE.search(f[1])
-	        and not PIN_CELL.fullmatch(f[1])]			# 表头里的列名（竖排文字）
+	cols = [f for f in headers if headerName(headers, f)]			# 表头里的列名（竖排文字）
 	if not cols:
 		raise ValueError(f'第 {page} 页起没有找到共用管脚表的列名，不是共用管脚表')
 
 	colX = [sum(c) / len(c) for c in textCols([(f[2] + f[3]) / 2 for f in cols])]
-	names = cols if not firstHead else [f for f in firstHead if f[3] < 200 and not CHINESE.search(f[1])
-	                                    and not PIN_CELL.fullmatch(f[1])]
+	names = cols if not firstHead else [f for f in firstHead if headerName(firstHead, f)]
 	colName = [''.join(t for y, t, x0, x1, i in sorted(names)
 	                   if abs((x0 + x1) / 2 - x) < 17) for x in colX]
 
@@ -310,13 +339,16 @@ def readSharedPins(doc, page, chip, count):
 	colPins = sharedColPins(rows, colX)
 	cols = [i for i in range(len(colX)) if len(colPins[i]) == count]
 
+	if not cols:								# 手册里漏印一个管脚时，该列只有 count-1 个管脚号（补空名称的事交给 parsePKG）
+		cols = [i for i in range(len(colX)) if len(colPins[i]) == count - 1]
+
 	if not cols:
 		cols = '、'.join('%s(%d)' % (n, len(colPins[i])) for i, n in enumerate(colName))
 		raise ValueError(f'第 {page} 页起的管脚定义表里没有 {count} 个管脚的封装列（{cols}），请确认封装名')
 
 	if len(cols) > 1:							# 管脚数相同的列（如 CET7、SCET6 都是 48 脚）用型号名挑
 		cols = [i for _, i in sorted(((len(COL_LETTERS.sub('', colName[i])), i) for i in cols
-		                              if COL_LETTERS.sub('', colName[i]) in chip), reverse=True)] or cols
+		                              if sameModel(colName[i], chip)), reverse=True)] or cols
 
 	return colPins[cols[0]]
 
@@ -362,6 +394,15 @@ def parsePKG(pdf, page, pkg, dir, chip):
 		pins[holes[0]] = pins.pop(over[0])
 		nums = sorted(pins)
 
+	''' 手册里偶尔整个漏掉一个管脚（如 SWM211 的 QFN-32 共用表里没有 23 号），
+	    表现为比管脚数少一个、1 到管脚数里少一个；这时补一个空名称并提示，不中断。
+	'''
+	if len(nums) == count - 1 and not over and len(holes) == 1:
+		print('%s 第 %d 页的 %s：管脚表里没有 %d 号管脚，该脚名称留空（写成 “%d: ”）'
+		      % (chip, page, pkg, holes[0], holes[0]))
+		pins[holes[0]] = ['']
+		nums = sorted(pins)
+
 	if nums != list(range(1, len(nums) + 1)):
 		raise ValueError(f'{pdf} 第 {page} 页的 {pkg} 管脚号不是从 1 开始的连续号（读到 {nums}），请确认页码')
 
@@ -377,6 +418,15 @@ def parsePKG(pdf, page, pkg, dir, chip):
 
 
 if __name__ == '__main__':
+	if True:
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'LQFP-48',  'SWM211', 'SWM211C8T7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'SSOP-28',  'SWM211', 'SWM211G6S7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'QFN-48',   'SWM211', 'SWM21DC8U7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'QFN-40',   'SWM211', 'SWM21DD8U7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'QFN-32',   'SWM211', 'SWM21DK6U7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'SSOP-24',  'SWM211', 'SWM21PE6S7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'SSOP-28',  'SWM211', 'SWM21PG6S7')
+
 	if False:			# SWM221 手册：每个封装一个小节、一张管脚表
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 19, 'LQFP-48', 'SWM221', 'SWM221CBT7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 22, 'SSOP-24', 'SWM221', 'SWM221EBS7')
@@ -388,7 +438,7 @@ if __name__ == '__main__':
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 39, 'QFN-32',  'SWM221', 'SWM22DK8U7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM221数据手册_V1.22.pdf', 42, 'QFN-40',  'SWM221', 'SWM221DBU7')
 
-	if True:
+	if False:
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM231数据手册_V1.26.pdf', 16, 'SSOP-24',  'SWM231', 'SWM231E6S7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM231数据手册_V1.26.pdf', 19, 'SOP-16',   'SWM231', 'SWM23PQ6M7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM231数据手册_V1.26.pdf', 21, 'QFN-20',   'SWM231', 'SWM231F6U7')

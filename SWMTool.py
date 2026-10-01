@@ -192,9 +192,14 @@ class SWMTool(QWidget):
     def on_btnPinGen_clicked(self):
         pins = []
         for num, func in self.pinPage.pinFunct.items():
-            label = self.pinPage.packPins[num]          # PC5
-            port = label[1:].rstrip('0123456789')       #  C
-            pnum = label[1 + len(port):]                #   5
+            pname = self.pinPage.packPins[num]          # PC5
+            if '/' in pname:
+                for name in pname.split('/'):
+                    if func in self.pinPage.pinFuncs.get(name, []):
+                        pname = name
+                        break
+            port = pname[1:].rstrip('0123456789')       #  C
+            pnum = pname[1 + len(port):]                #   5
             pins.append((port, int(pnum), func))
 
         c_code = ''

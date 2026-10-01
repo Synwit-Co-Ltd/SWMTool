@@ -407,7 +407,11 @@ class PinConfigPage(QtCore.QObject):
             pnum = item.data(0)
             if pnum is not None:
                 pname = self.packPins.get(pnum, '')
-                funcs = self.pinFuncs.get(pname)
+                funcs = self.pinFuncs.get(pname, [])
+                if '/' in pname:
+                    for name in pname.split('/'):
+                        funcs.extend(self.pinFuncs.get(name, []))
+
                 if funcs:
                     menu = QtWidgets.QMenu(self.win)
                     menu.addAction(pname).setEnabled(False)     # 首项为引脚名，作为标题不可选
@@ -475,7 +479,11 @@ class PinConfigPage(QtCore.QObject):
                     for pnum, pname in self.packPins.items():
                         if pnum in self.pinFunct:
                             continue
-                        for func in self.pinFuncs.get(pname, []):
+                        funcs = self.pinFuncs.get(pname, [])
+                        if '/' in pname:
+                            for name in pname.split('/'):
+                                funcs.extend(self.pinFuncs.get(name, []))
+                        for func in funcs:
                             if '_' in func and func.split('_')[0] == periph:
                                 prevFunct[pnum] = func
                                 break

@@ -449,7 +449,14 @@ def parsePKG(pdf, page, pkg, dir, chip):
 
 
 if __name__ == '__main__':
-	if True:
+	pass
+
+	if False:
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM181数据手册V2.07.pdf', 18, 'QFN-40',   'SWM181', 'SWM181DBU6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM181数据手册V2.07.pdf', 18, 'LQFP-48',  'SWM181', 'SWM181CBT6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM181数据手册V2.07.pdf', 18, 'LQFP-64',  'SWM181', 'SWM181RCT6')
+
+	if False:
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-64',  'SWM190', 'SWM190RBT6')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-48',  'SWM190', 'SWM190CBT6')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-32',  'SWM190', 'SWM190KBT6')

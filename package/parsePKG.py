@@ -419,6 +419,12 @@ def parsePKG(pdf, page, pkg, dir, chip):
 
 if __name__ == '__main__':
 	if True:
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM201数据手册V1.28.pdf', 18, 'LQFP-48',  'SWM201', 'SWM201C6T7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM201数据手册V1.28.pdf', 18, 'SSOP-28',  'SWM201', 'SWM201G6S7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM201数据手册V1.28.pdf', 18, 'QFN-48',   'SWM201', 'SWM20DC6U7')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM201数据手册V1.28.pdf', 18, 'SSOP-28',  'SWM201', 'SWM20PG6S6')
+
+	if False:
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'LQFP-48',  'SWM211', 'SWM211C8T7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'SSOP-28',  'SWM211', 'SWM211G6S7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM211数据手册V1.19.pdf', 23, 'QFN-48',   'SWM211', 'SWM21DC8U7')

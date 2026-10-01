@@ -87,6 +87,28 @@ def sameModel(name, chip):
 	return False
 
 
+def commonHead(name, chip):
+	''' 列名的字母和型号名开头相同的字数：列名认不出型号名时（如共用列名 “SCBT6/7” 对 SWM19SC9T6）
+	    用它挑“最像”的那一列。
+	'''
+	n = 0
+	while n < len(name) and n < len(chip) and name[n] == chip[n]:
+		n += 1
+
+	return n
+
+
+def nearCol(colX, x, tol=17):
+	''' 片段属于哪一列：取中心离得最近的那一列。表里相邻两列的中心只隔二十来磅，比容差还小，
+	    所以一个片段可能同时落在两列的容差里（SWM190 表里紧挨着的两列会互相串格），只归最近的一列。
+	'''
+	if not colX:
+		return None
+
+	i = min(range(len(colX)), key=lambda c: abs(colX[c] - x))
+	return i if abs(colX[i] - x) < tol else None
+
+
 def textLines(doc, page):
 	return doc[page].get_textpage().get_text_range().splitlines()
 
@@ -221,9 +243,9 @@ def sharedRowsByXY(pages, colX, numMax, nameMax):
 		for y, fs in textRows(cellFrags, 9.0):
 			cell = {}
 			for fy, t, x0, x1, i in fs:
-				for c, x in enumerate(colX):
-					if abs((x0 + x1) / 2 - x) < 17:
-						cell.setdefault(c, []).append((x0, fy, t))
+				c = nearCol(colX, (x0 + x1) / 2)
+				if c is not None:
+					cell.setdefault(c, []).append((x0, fy, t))
 			if len(cell) >= 2:
 				rows.append([p, sum(fy for v in cell.values() for x, fy, t in v) / sum(map(len, cell.values())),
 				             cell, []])
@@ -250,12 +272,12 @@ def sharedRowsByText(pages, colX, numMax, nameMax):
 		row = None
 		for f in sorted(body, key=lambda f: f[4]):
 			fy, t, x0, x1 = f[:4]
-			col = [i for i, x in enumerate(colX) if abs((x0 + x1) / 2 - x) < 17]
-			if col and PIN_CELL.fullmatch(t):
-				if row is None or row[3] or col[0] in row[2]:
+			col = nearCol(colX, (x0 + x1) / 2)
+			if col is not None and PIN_CELL.fullmatch(t):
+				if row is None or row[3] or col in row[2]:
 					row = [p, fy, {}, []]
 					rows.append(row)
-				row[2].setdefault(col[0], []).append((x0, fy, t))
+				row[2].setdefault(col, []).append((x0, fy, t))
 			elif row is not None and numMax < x0 and x1 < nameMax + 1 and t not in ('——', '/') and not CHINESE.search(t):
 				row[3].append((x0, t))			# 管脚名；换行的名称（如 ADC0_VREFP）会分几个片段，都归到本行
 
@@ -286,7 +308,7 @@ def sharedColPins(rows, colX):
 	return colPins
 
 
-def readSharedPins(doc, page, chip, count):
+def readSharedPins(doc, page, pkg, chip, count):
 	''' 格式二：各个封装的管脚号并排在一张表里，一个封装占一列。表头是竖排的列名（VET7/6、RET7/6 …），
 	    管脚号和管脚名称排在同一行，没法按行首的文字匹配，只能按字符坐标把表格还原成行列后再读。
 	    先按坐标分行，对不上管脚数时再按文字流顺序分行（两种办法互为补充，见上面两个函数）。
@@ -295,6 +317,7 @@ def readSharedPins(doc, page, chip, count):
 		raise ValueError('共用管脚表按管脚数找封装列，封装名末尾要带上管脚数（如 LQFP-64）')
 
 	''' 给的是共用表的续页时（页面上没有小节标题，也没有表头），往前回到该小节的第一页再读。 '''
+	given = page								# 提示里的页码一律用调用者给的，跟其它提示对得上
 	while page > 0 and not any(SECTION.match(line) for line in textLines(doc, page)):
 		page -= 1
 
@@ -347,8 +370,16 @@ def readSharedPins(doc, page, chip, count):
 		raise ValueError(f'第 {page} 页起的管脚定义表里没有 {count} 个管脚的封装列（{cols}），请确认封装名')
 
 	if len(cols) > 1:							# 管脚数相同的列（如 CET7、SCET6 都是 48 脚）用型号名挑
-		cols = [i for _, i in sorted(((len(COL_LETTERS.sub('', colName[i])), i) for i in cols
-		                              if sameModel(colName[i], chip)), reverse=True)] or cols
+		names = [COL_LETTERS.sub('', colName[i]) for i in range(len(colName))]
+		matched = [i for i in cols if sameModel(colName[i], chip)]
+		if matched:								# 认得出的，按列名里的字母多少挑
+			cols = [i for _, i in sorted(((len(names[i]), i) for i in matched), reverse=True)]
+		else:									# 认不出的（如共用列名 “SCBT6/7” 对 SWM19SC9T6）挑最像的一列并提示
+			head = max(commonHead(names[i], chip) for i in cols)
+			guess = [i for i in cols if head and commonHead(names[i], chip) == head] or cols
+			print('%s 第 %d 页的 %s：型号名认不出封装列（%s），按最像的列 %s 记录（供确认）'
+			      % (chip, given, pkg, '、'.join(colName[i] for i in cols), colName[guess[0]]))
+			cols = guess
 
 	return colPins[cols[0]]
 
@@ -361,7 +392,7 @@ def parsePKG(pdf, page, pkg, dir, chip):
 		pins = None
 		if isShared(doc, page):				# 看着像“各个封装的管脚号并排在一张表里”（SWM241/260/320/341 手册）
 			try:
-				pins = readSharedPins(doc, page, chip, count)
+				pins = readSharedPins(doc, page, pkg, chip, count)
 			except ValueError:
 				pins = None					# 其实不是（比如这页还画着封装图），改按一个封装一张表来读
 
@@ -372,7 +403,7 @@ def parsePKG(pdf, page, pkg, dir, chip):
 				table = findShared(doc, page)
 				if table is not None:
 					try:
-						pins = readSharedPins(doc, table, chip, count)
+						pins = readSharedPins(doc, table, pkg, chip, count)
 					except ValueError:
 						pins = readPins(doc, page, count)	# 不是共用表：退回“一个封装一张表”的结果
 
@@ -419,6 +450,13 @@ def parsePKG(pdf, page, pkg, dir, chip):
 
 if __name__ == '__main__':
 	if True:
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-64',  'SWM190', 'SWM190RBT6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-48',  'SWM190', 'SWM190CBT6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-32',  'SWM190', 'SWM190KBT6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-48',  'SWM190', 'SWM19SCBT6')
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM190数据手册V2.16.pdf', 24, 'LQFP-48',  'SWM190', 'SWM19SC9T6')
+
+	if False:
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM201数据手册V1.28.pdf', 18, 'LQFP-48',  'SWM201', 'SWM201C6T7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM201数据手册V1.28.pdf', 18, 'SSOP-28',  'SWM201', 'SWM201G6S7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM201数据手册V1.28.pdf', 18, 'QFN-48',   'SWM201', 'SWM20DC6U7')

@@ -190,21 +190,7 @@ class SWMTool(QWidget):
 
     @pyqtSlot()
     def on_btnPinGen_clicked(self):
-        pins = []
-        for num, func in self.pinPage.pinFunct.items():
-            pname = self.pinPage.packPins[num]          # PC5
-            if '/' in pname:
-                for name in pname.split('/'):
-                    if func in self.pinPage.pinFuncs.get(name, []):
-                        pname = name
-                        break
-            port = pname[1:].rstrip('0123456789')       #  C
-            pnum = pname[1 + len(port):]                #   5
-            pins.append((port, int(pnum), func))
-
-        c_code = ''
-        for port, pnum, func in sorted(pins):
-            c_code += f'PORT_Init(PORT{port}, PIN{pnum}, PORT{port}_PIN{pnum}_{func}, 1);\n'
+        c_code = self.pinPage.genPinInitCode()
 
         path, filter = QFileDialog.getSaveFileName(caption='保存生成的 C 代码', filter='C Code (*.c)', directory=f'{self.linPinPath.text()}.c')
         if path:

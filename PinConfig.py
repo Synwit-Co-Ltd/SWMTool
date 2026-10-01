@@ -533,35 +533,71 @@ class PinConfigPage(QtCore.QObject):
             self._drawing = False
 
     def parsePinFuncs(self, path):
+        try:
+            self.port_text = open(path, encoding='utf-8', errors='ignore').read()   # SWM341_port.h 文件内容
+        except OSError:
+            self.port_text = ''
+            return {}
+
+        ''' 从 SWM181_port.h 中的 FUNMUX_UART0_RXD 宏解析出 UART0_RXD
+        '''
+        funmux = {'FUNMUX': [], 'FUNMUX0': [], 'FUNMUX1': []}
+        for m in re.finditer(r'(FUNMUX[01]?)_(\w+)', self.port_text):
+            funmux[m.group(1)].append(m.group(2))
+
         ''' 从 SWM341_port.h 中解析出各引脚的可选功能，返回 {引脚名称: [功能, ...]}
             如 PORTC_PIN5_I2C1_SCL 解析出 PC5: I2C1_SCL。
         '''
         funcs = {}
-        try:
-            with open(path, encoding='utf-8', errors='ignore') as cf:
-                for m in re.finditer(r'\bPORT([A-Z]+)_PIN(\d+)_([A-Z0-9_]+)', cf.read()):
-                    pname = 'P%s%s' % (m.group(1), m.group(2))
-                    if m.group(3) not in funcs.setdefault(pname, []):
-                        funcs[pname].append(m.group(3))
-        except OSError:
-            pass
+        for m in re.finditer(r'\bPORT([A-Z]+)_PIN(\d+)_([A-Z0-9_]+)', self.port_text):
+            pname = 'P%s%s' % (m.group(1), m.group(2))
+            if m.group(3) not in funcs.setdefault(pname, []):
+                funcs[pname].append(m.group(3))
+            if m.group(3).startswith('FUNMUX'):
+                funcs[pname].remove(m.group(3))
+                funcs[pname].extend(funmux.get(m.group(3), []))
 
         ''' 从 SWM341_port.h 中解析出外设名称：宏名恰好被 _ 分成四部分时取第三部分，
             如 PORTC_PIN5_I2C1_SCL 解析出 I2C1
         '''
         periphs = set()
-        try:
-            with open(path, encoding='utf-8', errors='ignore') as cf:
-                for m in re.finditer(r'#define\s+(\w+)', cf.read()):
-                    parts = m.group(1).split('_')
-                    if len(parts) == 4:
-                        periphs.add(parts[2])
-                    elif len(parts) == 3 and (m := re.match(r'(PWM\d)[AB]N?', parts[2])):
-                        periphs.add(m.group(1))
-        except OSError:
-            pass
+        for m in re.finditer(r'#define\s+(\w+)', self.port_text):
+            parts = m.group(1).split('_')
+            if len(parts) == 4:
+                periphs.add(parts[2])
+            elif len(parts) == 3 and (m := re.match(r'(PWM\d)[AB]N?', parts[2])):
+                periphs.add(m.group(1))
 
         self.lsPeriph.clear()
         self.lsPeriph.addItems(sorted(periphs))
 
         return funcs
+
+    def genPinInitCode(self):
+        pins = []
+        for num, func in self.pinFunct.items():
+            pname = self.packPins[num]              # PC5
+            if '/' in pname:
+                for name in pname.split('/'):
+                    if func in self.pinFuncs.get(name, []):
+                        pname = name
+                        break
+            port = pname[1:].rstrip('0123456789')   #  C
+            pnum = pname[1 + len(port):]            #   5
+            pins.append((port, int(pnum), func))
+
+        ANALOG_PINS = ('ADC_IN', 'ADC_CH', 'ADC0_IN', 'ADC0_CH', 'ADC1_IN', 'ADC1_CH', 'ADC2_IN', 'ADC2_CH',
+                       'ACMP', 'CMP', 'OPA', 'DAC', 'REF', 'XTAL')
+
+        c_code = ''
+        for port, pnum, func in sorted(pins):
+            digital_input_enable = 1
+            if any(ana in func for ana in ANALOG_PINS):
+                digital_input_enable = 0
+
+            if m := re.search(f'FUNMUX[01]?_{func}', self.port_text):
+                c_code += f'PORT_Init(PORT{port}, PIN{pnum}, {m.group(0)}, {digital_input_enable});\n'
+            else:
+                c_code += f'PORT_Init(PORT{port}, PIN{pnum}, PORT{port}_PIN{pnum}_{func}, {digital_input_enable});\n'
+
+        return c_code

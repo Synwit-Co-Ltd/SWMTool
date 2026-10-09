@@ -60,8 +60,8 @@ class SWMTool(QWidget):
                 self.conf.set(mcu, 'pack', '')
                 self.conf.set(mcu, 'freq', '48')
                 self.conf.set(mcu, 'sdram', '')
-                self.conf.set(mcu, 'can.baudrate', '100')
-                self.conf.set(mcu, 'can.sampoint', '75')
+                self.conf.set(mcu, 'can.baudrate', '')
+                self.conf.set(mcu, 'can.sampoint', '')
                 self.conf.set(mcu, 'pin.confpath', '')
 
         self.cmbMCU.addItems(mcus)
@@ -80,8 +80,8 @@ class SWMTool(QWidget):
         self.linFreq.setText(self.conf.get(mcu, 'freq'))
         self.cmbPack.setCurrentText(self.conf.get(mcu, 'pack'))
         self.cmbSDRAM.setCurrentText(self.conf.get(mcu, 'sdram'))
-        self.linCANBaud.setText(self.conf.get(mcu, 'can.baudrate'))
-        self.linCANSamp.setText(self.conf.get(mcu, 'can.sampoint'))
+        self.linCANBaud.setText(self.conf.get(mcu, 'can.baudrate') or '100')
+        self.linCANSamp.setText(self.conf.get(mcu, 'can.sampoint') or '75')
         self.linPinPath.setText(self.conf.get(mcu, 'pin.confpath'))
 
         if mcu == 'SWM181':
@@ -321,9 +321,9 @@ class SWMTool(QWidget):
         self.conf.set('global', 'mcu', self.cmbMCU.currentText())
         self.conf.set(self.cmbMCU.currentText(), 'freq', self.linFreq.text())
         self.conf.set(self.cmbMCU.currentText(), 'pack', self.cmbPack.currentText())
-        self.conf.set(self.cmbMCU.currentText(), 'sdram', self.cmbSDRAM.currentText())
-        self.conf.set(self.cmbMCU.currentText(), 'can.baudrate', self.linCANBaud.text())
-        self.conf.set(self.cmbMCU.currentText(), 'can.sampoint', self.linCANSamp.text())
+        self.conf.set(self.cmbMCU.currentText(), 'sdram', self.cmbSDRAM.currentText() if self.tabMain.isTabVisible(PAGE_SDR) else '')
+        self.conf.set(self.cmbMCU.currentText(), 'can.baudrate', self.linCANBaud.text() if self.tabMain.isTabVisible(PAGE_CAN) else '')
+        self.conf.set(self.cmbMCU.currentText(), 'can.sampoint', self.linCANSamp.text() if self.tabMain.isTabVisible(PAGE_CAN) else '')
         self.conf.set(self.cmbMCU.currentText(), 'pin.confpath', self.linPinPath.text())
         self.conf.write(open('setting.ini', 'w', encoding='utf-8'))
 

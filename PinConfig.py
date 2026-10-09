@@ -344,6 +344,7 @@ class PinConfigPage(QtCore.QObject):
         self.packName = ''              # 封装名称，如 LQFP-64
         self.packPins = {}              # SWM34SRET6.txt 记录的 {引脚序号: 引脚名称}，如 45: PM0
         self.pinFuncs = {}              # SWM341_port.h 解析出的 {引脚名称: [引脚功能, ...]}，如 PM0: ['GPIO', 'UART0_RX', 'PWM_BRK1', 'CAN1_TX']
+        self.funMuxes = {}              # SWM330_port.h 中类似 FUNMUX0_UART0_TXD 的宏解析出的 {引脚名称: [引脚功能, ...]}
         self.pinFunct = {}              # {引脚序号: 选中的非 GPIO 引脚功能}，非 GPIO 功能以红色显示
 
         self.vsdxView = VsdxView(self)  # 用来显示 self.vsdxPage 的画布视图
@@ -407,10 +408,10 @@ class PinConfigPage(QtCore.QObject):
             pnum = item.data(0)
             if pnum is not None:
                 pname = self.packPins.get(pnum, '')
-                funcs = self.pinFuncs.get(pname, [])
+                funcs = self.pinFuncs.get(pname, []) + self.funMuxes.get(pname, [])
                 if '/' in pname:
                     for name in pname.split('/'):
-                        funcs.extend(self.pinFuncs.get(name, []))
+                        funcs.extend(self.pinFuncs.get(name, []) + self.funMuxes.get(name, []))
 
                 if funcs:
                     menu = QtWidgets.QMenu(self.win)
@@ -537,28 +538,27 @@ class PinConfigPage(QtCore.QObject):
             self.port_text = open(path, encoding='utf-8', errors='ignore').read()   # SWM341_port.h 文件内容
         except OSError:
             self.port_text = ''
-            return {}
 
-        ''' 从 SWM181_port.h 中的 FUNMUX_UART0_RXD 宏解析出 UART0_RXD
+        ''' 从 SWM330_port.h 中的 FUNMUX0_UART0_TXD 解析出 FUNMUX0: UART0_TXD
         '''
         funmux = {'FUNMUX': [], 'FUNMUX0': [], 'FUNMUX1': []}
         for m in re.finditer(r'(FUNMUX[01]?)_(\w+)', self.port_text):
             funmux[m.group(1)].append(m.group(2))
 
-        ''' 从 SWM341_port.h 中解析出各引脚的可选功能，返回 {引脚名称: [功能, ...]}
-            如 PORTC_PIN5_I2C1_SCL 解析出 PC5: I2C1_SCL。
+        ''' 从 SWM341_port.h 中的 PORTC_PIN5_I2C1_SCL 解析出 PC5: I2C1_SCL
         '''
-        funcs = {}
+        self.pinFuncs.clear()
+        self.funMuxes.clear()
         for m in re.finditer(r'\bPORT([A-Z]+)_PIN(\d+)_([A-Z0-9_]+)', self.port_text):
             pname = 'P%s%s' % (m.group(1), m.group(2))
-            if m.group(3) not in funcs.setdefault(pname, []):
-                funcs[pname].append(m.group(3))
-            if m.group(3).startswith('FUNMUX'):
-                funcs[pname].remove(m.group(3))
-                funcs[pname].extend(funmux.get(m.group(3), []))
+            pfunc = m.group(3)
+            if pfunc not in self.pinFuncs.setdefault(pname, []):
+                self.pinFuncs[pname].append(pfunc)
+            if pfunc.startswith('FUNMUX'):
+                self.pinFuncs[pname].remove(pfunc)
+                self.funMuxes[pname] = funmux.get(pfunc, [])
 
-        ''' 从 SWM341_port.h 中解析出外设名称：宏名恰好被 _ 分成四部分时取第三部分，
-            如 PORTC_PIN5_I2C1_SCL 解析出 I2C1
+        ''' 从 SWM341_port.h 中解析出外设名称，如从 PORTC_PIN5_I2C1_SCL 解析出 I2C1
         '''
         periphs = set()
         for m in re.finditer(r'#define\s+(\w+)', self.port_text):
@@ -571,15 +571,13 @@ class PinConfigPage(QtCore.QObject):
         self.lsPeriph.clear()
         self.lsPeriph.addItems(sorted(periphs))
 
-        return funcs
-
     def genPinInitCode(self):
         pins = []
         for num, func in self.pinFunct.items():
             pname = self.packPins[num]              # PC5
             if '/' in pname:
                 for name in pname.split('/'):
-                    if func in self.pinFuncs.get(name, []):
+                    if func in self.pinFuncs.get(name, []) + self.funMuxes.get(name, []):
                         pname = name
                         break
             port = pname[1:].rstrip('0123456789')   #  C

@@ -69,7 +69,7 @@ class SWMTool(QWidget):
 
     @pyqtSlot(str)
     def on_cmbMCU_currentIndexChanged(self, mcu):
-        self.pinPage.pinFuncs = self.pinPage.parsePinFuncs(os.path.join('package', mcu, mcu + '_port.h'))
+        self.pinPage.parsePinFuncs(os.path.join('package', mcu, mcu + '_port.h'))
 
         self.cmbPack.clear()
         self.cmbPack.addItems(sorted(name[:-4] for name in os.listdir(f'package/{mcu}') if name.endswith('.txt')))

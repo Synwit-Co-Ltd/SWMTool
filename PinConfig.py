@@ -258,8 +258,8 @@ class VsdxPage:
 
             if pnum in pinFunct:                    # 选中的非 GPIO 功能，红色显示
                 text, color = pinFunct[pnum], QtCore.Qt.red
-            elif pnum in prevFunct:                 # 预览的非 GPIO 功能，浅红色显示
-                text, color = prevFunct[pnum], QtGui.QColor('#FF7777')
+            elif pnum in prevFunct:                 # 预览的非 GPIO 功能，浅蓝显示
+                text, color = prevFunct[pnum], QtGui.QColor('#4444FF')
             else:                                   # 默认的 GPIO 功能，黑色显示
                 text, color = pname, QtCore.Qt.black
 
@@ -434,16 +434,16 @@ class PinConfigPage(QtCore.QObject):
 
         self.drawPack(keepView=True)
 
-    def onPeriphClicked(self, item):        # 单击条目背景变浅红，再次单击恢复原色；变浅红前遍历恢复所有条目原色
+    def onPeriphClicked(self, item):        # 单击条目背景变浅蓝，再次单击恢复原色；变浅蓝前遍历恢复所有条目原色
         style = item.background().style()   # 记录下被点击条目原本背景色
 
         for i in range(self.lsPeriph.count()):
             self.lsPeriph.item(i).setBackground(QtGui.QBrush())     # 空画刷即默认背景
 
         if style == QtCore.Qt.NoBrush:
-            item.setBackground(QtGui.QColor('#FFCCCC'))
+            item.setBackground(QtGui.QColor('#CCCCFF'))
 
-        self.drawPack(keepView=True)        # 画布同步显示/恢复匹配引脚的浅红预览功能
+        self.drawPack(keepView=True)        # 画布同步显示/恢复匹配引脚的浅蓝预览功能
 
     def drawPack(self, keepView=False):
         ''' 在 self.vsdxView 中绘制 self.vsdxPage。
@@ -468,7 +468,7 @@ class PinConfigPage(QtCore.QObject):
                 return          # 视图尚未显示，等页面切换或尺寸变化时再画
 
             if self.vsdxPage is not None:
-                periph = None       # 左侧列表中选中的外设以浅红色显示
+                periph = None       # 左侧列表中选中的外设以浅蓝色显示
                 for i in range(self.lsPeriph.count()):
                     if self.lsPeriph.item(i).background().style() != QtCore.Qt.NoBrush:
                         periph = self.lsPeriph.item(i).text()

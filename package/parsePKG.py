@@ -504,6 +504,9 @@ if __name__ == '__main__':
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM260数据手册V2.05.pdf', 16, 'LQFP-44',  'SWM260', 'SWM260PBT7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM260数据手册V2.05.pdf', 16, 'LQFP-32',  'SWM260', 'SWM260KBT7')
 
+	if False:
+		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM261数据手册_V1.00.pdf', 17, 'LQFP-48',  'SWM261', 'SWM261CBT7')
+
 	if False:			# SWM320 手册：各个封装的管脚号并排放在 5.5“管脚描述”表里，故页码相同（第 18 页起）
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-48',  'SWM320', 'SWM320CET7')
 		parsePKG(r'C:\Users\WMX\Desktop\数据手册\华芯微特SWM320数据手册V2.41.pdf', 18, 'LQFP-64',  'SWM320', 'SWM320RET7')

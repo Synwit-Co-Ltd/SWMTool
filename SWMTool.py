@@ -178,7 +178,7 @@ class SWMTool(QWidget):
 
     @pyqtSlot()
     def on_btnPinSave_clicked(self):
-        path, filter = QFileDialog.getSaveFileName(caption='保存引脚配置文件', filter='引脚配置文件 (*.csv)', directory=self.linPinPath.text())
+        path, filter = QFileDialog.getSaveFileName(caption='保存引脚配置文件', filter='引脚配置文件 (*.csv)', directory=self.linPinPath.text() or f'{self.cmbPack.currentText()}.csv')
         if path:
             self.linPinPath.setText(path)
             
@@ -192,7 +192,11 @@ class SWMTool(QWidget):
     def on_btnPinGen_clicked(self):
         c_code = self.pinPage.genPinInitCode()
 
-        path, filter = QFileDialog.getSaveFileName(caption='保存生成的 C 代码', filter='C Code (*.c)', directory=f'{self.linPinPath.text()}.c')
+        if not self.linPinPath.text().endswith('.csv'):
+            QMessageBox.warning(self, '请先保存配置', '请先点击“保存配置”按钮，将引脚配置保存到配置文件中')
+            return
+
+        path, filter = QFileDialog.getSaveFileName(caption='保存生成的 C 代码', filter='C Code (*.h)', directory=self.linPinPath.text().replace('.csv', '.h'))
         if path:
             with open(path, 'w') as cf:
                 cf.write(c_code)
